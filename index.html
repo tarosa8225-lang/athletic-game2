@@ -17,14 +17,10 @@
       line-height: 1.4;
       max-width: min(520px, calc(100vw - 24px));
     }
-    #center {
-      position: fixed; inset: 0; display:flex; align-items:center; justify-content:center;
-      pointer-events: none;
-    }
+    #center { position: fixed; inset: 0; display:flex; align-items:center; justify-content:center; pointer-events:none; }
     #crosshair {
       width: 10px; height: 10px; border: 2px solid rgba(232,238,252,.9);
-      border-radius: 999px; opacity: .9;
-      box-shadow: 0 0 10px rgba(232,238,252,.25);
+      border-radius: 999px; opacity: .9; box-shadow: 0 0 10px rgba(232,238,252,.25);
     }
     #overlay {
       position: fixed; inset: 0;
@@ -75,7 +71,6 @@
 <body>
   <div id="hud"></div>
   <div id="toast"></div>
-
   <div id="center"><div id="crosshair"></div></div>
 
   <div id="overlay">
@@ -112,34 +107,35 @@ renderer.outputColorSpace = THREE.SRGBColorSpace;
 document.body.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x0b1020, 15, 120);
+scene.fog = new THREE.Fog(0x0b1020, 15, 140);
 
 const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 500);
-camera.position.set(0, 2, 8);
 
+// Controls (player object = feet position)
 const controls = new PointerLockControls(camera, renderer.domElement);
 scene.add(controls.getObject());
 
-// Lights
+// Player constants (feet-based)
+const PLAYER_HEIGHT = 1.75;
+const PLAYER_RADIUS = 0.35;
+camera.position.set(0, PLAYER_HEIGHT, 0); // camera is inside the player object
+
+function feetPos(){ return controls.getObject().position; }
+
+// --- Lights ---
 scene.add(new THREE.HemisphereLight(0xbad7ff, 0x0b1020, 0.85));
 const dir = new THREE.DirectionalLight(0xffffff, 0.9);
 dir.position.set(12, 18, 8);
 scene.add(dir);
 
-// Ground grid (visual)
-const grid = new THREE.GridHelper(200, 200, 0x7aa5ff, 0x26406f);
+// Visual grid
+const grid = new THREE.GridHelper(220, 220, 0x7aa5ff, 0x26406f);
 grid.material.opacity = 0.18;
 grid.material.transparent = true;
 scene.add(grid);
 
-// --- World building helpers ---
-const world = {
-  solids: [],   // { mesh, box3, kind: "solid" }
-  hazards: [],  // { mesh, box3, kind: "hazard" }
-  checkpoints: [], // { mesh, box3, spawn: Vector3, hit: bool }
-  goal: null,   // { mesh, box3 }
-  movers: [],   // moving platforms: { mesh, box3, basePos, axis, amp, spd, t, prevPos }
-};
+// --- World building ---
+const world = { solids: [], hazards: [], checkpoints: [], goal: null, movers: [] };
 
 const matSolid = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, metalness: 0.0, transparent: true, opacity: 0.18 });
 const matMover = new THREE.MeshStandardMaterial({ color: 0x7adcff, roughness: 0.6, metalness: 0.05, transparent: true, opacity: 0.22 });
@@ -148,81 +144,79 @@ const matCheckpointOff = new THREE.MeshStandardMaterial({ color: 0xffffff, rough
 const matCheckpointOn  = new THREE.MeshStandardMaterial({ color: 0x78ffa0, roughness: 0.6, metalness: 0.0, transparent: true, opacity: 0.9 });
 const matGoal = new THREE.MeshStandardMaterial({ color: 0xffdc78, roughness: 0.65, metalness: 0.0, transparent: true, opacity: 0.26 });
 
-function addBox({pos, size, mat, list, kind}){
+function addBox({pos, size, mat, list}){
   const geo = new THREE.BoxGeometry(size.x, size.y, size.z);
   const mesh = new THREE.Mesh(geo, mat);
   mesh.position.copy(pos);
   scene.add(mesh);
 
   const box3 = new THREE.Box3().setFromObject(mesh);
-  const obj = { mesh, box3, kind };
+  const obj = { mesh, box3 };
   list.push(obj);
   return obj;
 }
+function updateBox3(obj){ obj.box3.setFromObject(obj.mesh); }
 
-function updateBox3(obj){
-  obj.box3.setFromObject(obj.mesh);
-}
+// --- Level ---
+addBox({ pos: new THREE.Vector3(0, -0.5, 0), size: new THREE.Vector3(20, 1, 20), mat: matSolid, list: world.solids });
 
-// --- Level layout ---
-// Base platforms (solids)
-addBox({ pos: new THREE.Vector3(0, -0.5, 0), size: new THREE.Vector3(20, 1, 20), mat: matSolid, list: world.solids, kind:"solid" });
+addBox({ pos: new THREE.Vector3(10, 0.6, -2), size: new THREE.Vector3(6, 1, 4), mat: matSolid, list: world.solids });
+addBox({ pos: new THREE.Vector3(18, 1.8, -5), size: new THREE.Vector3(4, 1, 4), mat: matSolid, list: world.solids });
+addBox({ pos: new THREE.Vector3(26, 3.0, -8), size: new THREE.Vector3(4, 1, 4), mat: matSolid, list: world.solids });
+addBox({ pos: new THREE.Vector3(34, 4.2, -10), size: new THREE.Vector3(5, 1, 5), mat: matSolid, list: world.solids });
 
-// Course (a bit “parkour-ish”)
-addBox({ pos: new THREE.Vector3(10, 0.6, -2), size: new THREE.Vector3(6, 1, 4), mat: matSolid, list: world.solids, kind:"solid" });
-addBox({ pos: new THREE.Vector3(18, 1.8, -5), size: new THREE.Vector3(4, 1, 4), mat: matSolid, list: world.solids, kind:"solid" });
-addBox({ pos: new THREE.Vector3(26, 3.0, -8), size: new THREE.Vector3(4, 1, 4), mat: matSolid, list: world.solids, kind:"solid" });
-addBox({ pos: new THREE.Vector3(34, 4.2, -10), size: new THREE.Vector3(5, 1, 5), mat: matSolid, list: world.solids, kind:"solid" });
+addBox({ pos: new THREE.Vector3(41, 5.1, -10), size: new THREE.Vector3(7, 0.6, 1.2), mat: matSolid, list: world.solids });
+addBox({ pos: new THREE.Vector3(50, 6.0, -10), size: new THREE.Vector3(7, 0.6, 1.2), mat: matSolid, list: world.solids });
 
-// Narrow beams
-addBox({ pos: new THREE.Vector3(41, 5.1, -10), size: new THREE.Vector3(7, 0.6, 1.2), mat: matSolid, list: world.solids, kind:"solid" });
-addBox({ pos: new THREE.Vector3(50, 6.0, -10), size: new THREE.Vector3(7, 0.6, 1.2), mat: matSolid, list: world.solids, kind:"solid" });
+addBox({ pos: new THREE.Vector3(60, 5.2, -10), size: new THREE.Vector3(10, 1, 10), mat: matSolid, list: world.solids });
 
-// Big landing
-addBox({ pos: new THREE.Vector3(60, 5.2, -10), size: new THREE.Vector3(10, 1, 10), mat: matSolid, list: world.solids, kind:"solid" });
-
-// Moving platforms (movers are also solids)
-const mover1 = addBox({ pos: new THREE.Vector3(72, 5.0, -12), size: new THREE.Vector3(4.5, 0.7, 4.5), mat: matMover, list: world.solids, kind:"solid" });
+const mover1 = addBox({ pos: new THREE.Vector3(72, 5.0, -12), size: new THREE.Vector3(4.5, 0.7, 4.5), mat: matMover, list: world.solids });
 world.movers.push({ obj: mover1, basePos: mover1.mesh.position.clone(), axis:"y", amp: 2.4, spd: 1.1, t: 0, prevPos: mover1.mesh.position.clone() });
 
-const mover2 = addBox({ pos: new THREE.Vector3(82, 6.0, -12), size: new THREE.Vector3(6.0, 0.7, 3.0), mat: matMover, list: world.solids, kind:"solid" });
+const mover2 = addBox({ pos: new THREE.Vector3(82, 6.0, -12), size: new THREE.Vector3(6.0, 0.7, 3.0), mat: matMover, list: world.solids });
 world.movers.push({ obj: mover2, basePos: mover2.mesh.position.clone(), axis:"x", amp: 3.2, spd: 0.9, t: 1.3, prevPos: mover2.mesh.position.clone() });
 
-// Final climb
-addBox({ pos: new THREE.Vector3(92, 7.4, -12), size: new THREE.Vector3(6, 1, 6), mat: matSolid, list: world.solids, kind:"solid" });
-addBox({ pos: new THREE.Vector3(102, 9.2, -12), size: new THREE.Vector3(5, 1, 5), mat: matSolid, list: world.solids, kind:"solid" });
+addBox({ pos: new THREE.Vector3(92, 7.4, -12), size: new THREE.Vector3(6, 1, 6), mat: matSolid, list: world.solids });
+addBox({ pos: new THREE.Vector3(102, 9.2, -12), size: new THREE.Vector3(5, 1, 5), mat: matSolid, list: world.solids });
 
-// Hazards (spikes = red boxes)
-addBox({ pos: new THREE.Vector3(18, 1.0, -2), size: new THREE.Vector3(3.2, 0.25, 3.2), mat: matHazard, list: world.hazards, kind:"hazard" });
-addBox({ pos: new THREE.Vector3(41, 4.85, -8), size: new THREE.Vector3(3.2, 0.25, 3.2), mat: matHazard, list: world.hazards, kind:"hazard" });
-addBox({ pos: new THREE.Vector3(64, 4.7, -12), size: new THREE.Vector3(3.0, 0.25, 3.0), mat: matHazard, list: world.hazards, kind:"hazard" });
+addBox({ pos: new THREE.Vector3(18, 1.0, -2), size: new THREE.Vector3(3.2, 0.25, 3.2), mat: matHazard, list: world.hazards });
+addBox({ pos: new THREE.Vector3(41, 4.85, -8), size: new THREE.Vector3(3.2, 0.25, 3.2), mat: matHazard, list: world.hazards });
+addBox({ pos: new THREE.Vector3(64, 4.7, -12), size: new THREE.Vector3(3.0, 0.25, 3.0), mat: matHazard, list: world.hazards });
 
-// Checkpoints
 function addCheckpoint(pos){
-  const cp = addBox({ pos, size: new THREE.Vector3(0.35, 2.2, 0.35), mat: matCheckpointOff, list: world.checkpoints, kind:"checkpoint" });
+  const cp = addBox({ pos, size: new THREE.Vector3(0.35, 2.2, 0.35), mat: matCheckpointOff, list: world.checkpoints });
   cp.hit = false;
-  cp.spawn = pos.clone().add(new THREE.Vector3(0, 1.2, 1.4));
+  // spawn = ちょい前＆ちょい上（足元座標）
+  cp.spawn = pos.clone().add(new THREE.Vector3(0, 0.2, 1.6));
   return cp;
 }
 addCheckpoint(new THREE.Vector3(10, 2.0, 3));
 addCheckpoint(new THREE.Vector3(60, 7.0, -6));
 addCheckpoint(new THREE.Vector3(92, 10.0, -8));
 
-// Goal
-world.goal = addBox({ pos: new THREE.Vector3(112, 10.0, -12), size: new THREE.Vector3(4, 3, 4), mat: matGoal, list: [], kind:"goal" });
+world.goal = addBox({ pos: new THREE.Vector3(112, 10.0, -12), size: new THREE.Vector3(4, 3, 4), mat: matGoal, list: [] });
 
-// Some walls (just to guide)
-addBox({ pos: new THREE.Vector3(30, 2.0, 6), size: new THREE.Vector3(90, 6, 1.2), mat: matSolid, list: world.solids, kind:"solid" });
-addBox({ pos: new THREE.Vector3(30, 2.0, -24), size: new THREE.Vector3(90, 6, 1.2), mat: matSolid, list: world.solids, kind:"solid" });
+addBox({ pos: new THREE.Vector3(30, 2.0, 6), size: new THREE.Vector3(90, 6, 1.2), mat: matSolid, list: world.solids });
+addBox({ pos: new THREE.Vector3(30, 2.0, -24), size: new THREE.Vector3(90, 6, 1.2), mat: matSolid, list: world.solids });
 
-// --- Player physics ---
-const PLAYER = {
-  height: 1.75,
-  radius: 0.35,
-  // For collision we use an AABB centered around player (camera is at head height)
-  aabbHalf: new THREE.Vector3(0.35, 0.95, 0.35),
-  eyeOffset: new THREE.Vector3(0, 0.75, 0),
-};
+// --- Input ---
+const keys = new Set();
+window.addEventListener("keydown", (e) => { keys.add(e.code); if (e.code === "KeyR") restartRun(true); });
+window.addEventListener("keyup", (e) => keys.delete(e.code));
+
+const wantForward = () => keys.has("KeyW");
+const wantBack = () => keys.has("KeyS");
+const wantLeft = () => keys.has("KeyA");
+const wantRight = () => keys.has("KeyD");
+const wantJump = () => keys.has("Space");
+const wantRun = () => keys.has("ShiftLeft") || keys.has("ShiftRight");
+
+// Pointer lock
+btn.addEventListener("click", () => controls.lock());
+controls.addEventListener("lock", () => overlay.style.display = "none");
+controls.addEventListener("unlock", () => overlay.style.display = "flex");
+
+// --- Physics ---
 let velocity = new THREE.Vector3(0,0,0);
 let onGround = false;
 let deaths = 0;
@@ -230,10 +224,6 @@ let finished = false;
 let startTime = performance.now();
 let finishTime = 0;
 
-const spawnDefault = new THREE.Vector3(0, 1.2, 8);
-let currentSpawn = spawnDefault.clone();
-
-// Movement tuning
 const GRAVITY = 18.5;
 const WALK_SPEED = 6.2;
 const RUN_SPEED  = 9.2;
@@ -241,46 +231,21 @@ const AIR_CONTROL = 0.45;
 const JUMP_V = 7.6;
 const FRICTION = 12.0;
 
-// Input
-const keys = new Set();
-window.addEventListener("keydown", (e) => {
-  keys.add(e.code);
-  if (e.code === "KeyR") restartRun(true);
-});
-window.addEventListener("keyup", (e) => keys.delete(e.code));
+let jumpWasDown = false;
 
-function wantForward(){ return keys.has("KeyW"); }
-function wantBack(){ return keys.has("KeyS"); }
-function wantLeft(){ return keys.has("KeyA"); }
-function wantRight(){ return keys.has("KeyD"); }
-function wantJump(){ return keys.has("Space"); }
-function wantRun(){ return keys.has("ShiftLeft") || keys.has("ShiftRight"); }
+const spawnDefault = new THREE.Vector3(0, 0.02, 8); // 足元が床上になるように
+let currentSpawn = spawnDefault.clone();
 
-// Pointer lock start
-btn.addEventListener("click", () => controls.lock());
-controls.addEventListener("lock", () => {
-  overlay.style.display = "none";
-});
-controls.addEventListener("unlock", () => {
-  overlay.style.display = "flex";
-});
-
-// Helpers
-function playerPos(){ return controls.getObject().position; }
-
-// AABB for player based on body center (not eye)
-function playerAABB(pos){
-  // body center is eye position minus eyeOffset
-  const center = pos.clone().sub(PLAYER.eyeOffset);
+function playerAABB(posFeet){
+  // feet-based AABB: y from feet to feet+height
   return new THREE.Box3(
-    center.clone().sub(PLAYER.aabbHalf),
-    center.clone().add(PLAYER.aabbHalf)
+    new THREE.Vector3(posFeet.x - PLAYER_RADIUS, posFeet.y, posFeet.z - PLAYER_RADIUS),
+    new THREE.Vector3(posFeet.x + PLAYER_RADIUS, posFeet.y + PLAYER_HEIGHT, posFeet.z + PLAYER_RADIUS)
   );
 }
 
-// Resolve AABB penetration against solid box
-function resolveAABBAgainstBox(pBox, sBox, pos){
-  if (!pBox.intersectsBox(sBox)) return { moved:false, pos };
+function resolveAABBAgainstBox(pBox, sBox, posFeet){
+  if (!pBox.intersectsBox(sBox)) return { moved:false, pos: posFeet };
 
   const pMin = pBox.min, pMax = pBox.max;
   const sMin = sBox.min, sMax = sBox.max;
@@ -289,12 +254,10 @@ function resolveAABBAgainstBox(pBox, sBox, pos){
   const overlapY = Math.min(pMax.y - sMin.y, sMax.y - pMin.y);
   const overlapZ = Math.min(pMax.z - sMin.z, sMax.z - pMin.z);
 
-  // push out along smallest overlap axis
+  const newPos = posFeet.clone();
   let moved = false;
-  const newPos = pos.clone();
 
   if (overlapX <= overlapY && overlapX <= overlapZ) {
-    // push x
     const pCenterX = (pMin.x + pMax.x) * 0.5;
     const sCenterX = (sMin.x + sMax.x) * 0.5;
     const dir = pCenterX < sCenterX ? -1 : 1;
@@ -302,20 +265,20 @@ function resolveAABBAgainstBox(pBox, sBox, pos){
     velocity.x = 0;
     moved = true;
   } else if (overlapY <= overlapX && overlapY <= overlapZ) {
-    // push y
     const pCenterY = (pMin.y + pMax.y) * 0.5;
     const sCenterY = (sMin.y + sMax.y) * 0.5;
     const dir = pCenterY < sCenterY ? -1 : 1;
     newPos.y += dir * overlapY;
-    if (dir < 0) { // pushed up (standing on top)
-      velocity.y = Math.max(0, velocity.y);
+    if (dir > 0) {
+      // pushed upward => landed on something (feet on top)
       onGround = true;
+      if (velocity.y < 0) velocity.y = 0;
     } else {
-      velocity.y = Math.min(0, velocity.y);
+      // hit ceiling
+      if (velocity.y > 0) velocity.y = 0;
     }
     moved = true;
   } else {
-    // push z
     const pCenterZ = (pMin.z + pMax.z) * 0.5;
     const sCenterZ = (sMin.z + sMax.z) * 0.5;
     const dir = pCenterZ < sCenterZ ? -1 : 1;
@@ -327,8 +290,13 @@ function resolveAABBAgainstBox(pBox, sBox, pos){
   return { moved, pos: newPos };
 }
 
-function setSpawn(v3){
-  currentSpawn.copy(v3);
+function setSpawn(v3){ currentSpawn.copy(v3); }
+
+function respawn(countDeath=true){
+  if (countDeath) deaths++;
+  velocity.set(0,0,0);
+  onGround = false;
+  feetPos().copy(currentSpawn);
 }
 
 function restartRun(keepDeaths=false){
@@ -336,7 +304,6 @@ function restartRun(keepDeaths=false){
   finished = false;
   startTime = performance.now();
   finishTime = 0;
-  // reset checkpoints
   for (const cp of world.checkpoints){
     cp.hit = false;
     cp.mesh.material = matCheckpointOff;
@@ -346,14 +313,6 @@ function restartRun(keepDeaths=false){
   showToast("リスタート！");
 }
 
-function respawn(countDeath=true){
-  if (countDeath) deaths++;
-  velocity.set(0,0,0);
-  onGround = false;
-  const p = playerPos();
-  p.copy(currentSpawn);
-}
-
 function markCheckpoint(cp){
   cp.hit = true;
   cp.mesh.material = matCheckpointOn;
@@ -361,11 +320,8 @@ function markCheckpoint(cp){
   showToast("チェックポイント更新");
 }
 
-// Start at spawn
-playerPos().copy(spawnDefault);
-
-// --- Animate ---
-let last = performance.now();
+// Initialize
+feetPos().copy(spawnDefault);
 
 function updateMovers(dt){
   for (const m of world.movers){
@@ -378,24 +334,19 @@ function updateMovers(dt){
     if (m.axis === "z") p.z += s;
     m.obj.mesh.position.copy(p);
     updateBox3(m.obj);
-
-    // If standing on mover, carry player by delta (simple)
-    // We'll detect "standing" by: onGround + player just above mover
   }
 }
 
 function step(dt){
-  // update boxes (solids static are fine; movers updated separately)
   updateMovers(dt);
 
-  if (finished){
-    // still render, no movement
-    return;
-  }
+  if (finished) return;
 
+  // keep last onGround for movement feel, then recompute via collision
+  const wasGround = onGround;
   onGround = false;
 
-  // Movement direction based on camera yaw
+  // Direction vectors (yaw)
   const dirF = new THREE.Vector3();
   camera.getWorldDirection(dirF);
   dirF.y = 0; dirF.normalize();
@@ -411,16 +362,13 @@ function step(dt){
   const speed = wantRun() ? RUN_SPEED : WALK_SPEED;
   const targetV = wish.multiplyScalar(speed);
 
-  // Apply accel: ground snappy / air limited
-  const accel = onGround ? 16.0 : 10.0;
-  const control = onGround ? 1.0 : AIR_CONTROL;
+  const accel = wasGround ? 16.0 : 10.0;
+  const control = wasGround ? 1.0 : AIR_CONTROL;
 
-  // We'll apply control to horizontal components
   velocity.x += (targetV.x - velocity.x) * Math.min(1, accel * dt * control);
   velocity.z += (targetV.z - velocity.z) * Math.min(1, accel * dt * control);
 
-  // Friction when no input & on ground (we'll approximate using low-speed damping)
-  if (wish.lengthSq() === 0 && onGround){
+  if (wish.lengthSq() === 0 && wasGround){
     const damp = Math.exp(-FRICTION * dt);
     velocity.x *= damp;
     velocity.z *= damp;
@@ -429,25 +377,23 @@ function step(dt){
   // Gravity
   velocity.y -= GRAVITY * dt;
 
-  // Jump (simple edge trigger)
-  if (wantJump() && onGround){
+  // Jump (edge trigger)
+  const jumpDown = wantJump();
+  const jumpPressed = jumpDown && !jumpWasDown;
+  jumpWasDown = jumpDown;
+  if (jumpPressed && wasGround){
     velocity.y = JUMP_V;
-    onGround = false;
   }
 
-  // Integrate
-  const p = playerPos();
-  const prev = p.clone();
+  // Integrate feet position
+  const p = feetPos();
   p.addScaledVector(velocity, dt);
 
-  // Collision resolution (iterate a couple times)
+  // Collisions (a few iterations)
   for (let iter=0; iter<3; iter++){
     const pBox = playerAABB(p);
     let movedAny = false;
-
-    // Solve against solids
     for (const s of world.solids){
-      // ensure mover boxes are updated; static boxes were set at creation
       const res = resolveAABBAgainstBox(pBox, s.box3, p);
       if (res.moved){
         p.copy(res.pos);
@@ -457,26 +403,25 @@ function step(dt){
     if (!movedAny) break;
   }
 
-  // After resolving, determine onGround by a tiny probe down
+  // Ground probe: tiny down to confirm standing
   {
-    const probePos = p.clone();
-    probePos.y -= 0.03;
-    const probe = playerAABB(probePos);
+    const probe = p.clone(); probe.y -= 0.03;
+    const probeBox = playerAABB(probe);
     for (const s of world.solids){
-      if (probe.intersectsBox(s.box3)){
+      if (probeBox.intersectsBox(s.box3)){
         onGround = true;
+        if (velocity.y < 0) velocity.y = 0;
         break;
       }
     }
-    if (onGround && velocity.y < 0) velocity.y = 0;
   }
 
-  // Carry by movers if standing on them (detect overlap slightly below)
+  // Carry by movers if standing on one
   if (onGround){
     const below = p.clone(); below.y -= 0.04;
-    const pBelow = playerAABB(below);
+    const belowBox = playerAABB(below);
     for (const m of world.movers){
-      if (pBelow.intersectsBox(m.obj.box3)){
+      if (belowBox.intersectsBox(m.obj.box3)){
         const delta = m.obj.mesh.position.clone().sub(m.prevPos);
         p.add(delta);
         break;
@@ -484,7 +429,7 @@ function step(dt){
     }
   }
 
-  // Hazards (death)
+  // Hazards
   const pBoxNow = playerAABB(p);
   for (const hz of world.hazards){
     if (pBoxNow.intersectsBox(hz.box3)){
@@ -496,7 +441,7 @@ function step(dt){
 
   // Checkpoints
   for (const cp of world.checkpoints){
-    updateBox3(cp); // safe
+    updateBox3(cp);
     if (!cp.hit && pBoxNow.intersectsBox(cp.box3)){
       markCheckpoint(cp);
     }
@@ -517,24 +462,21 @@ function step(dt){
   }
 }
 
-function render(){
-  renderer.render(scene, camera);
-}
-
+// --- Loop ---
+let last = performance.now();
 function loop(now){
   const dt = Math.min(0.033, (now - last) / 1000);
   last = now;
 
   if (controls.isLocked) step(dt);
 
-  // HUD
   const t = finished ? finishTime : (now - startTime) / 1000;
   hud.innerHTML =
     `Time <b>${t.toFixed(2)}</b>　|　Death <b>${deaths}</b>` +
     (finished ? `　|　✅ CLEAR! <span style="opacity:.9">（Rでリスタート）</span>` : "") +
     `<br><span style="opacity:.85">WASD移動 / Spaceジャンプ / Shiftダッシュ / Rリスタート / ESC解除</span>`;
 
-  render();
+  renderer.render(scene, camera);
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
@@ -545,7 +487,7 @@ window.addEventListener("resize", () => {
   renderer.setSize(innerWidth, innerHeight);
 });
 
-// Make sure static solids have box3 ready
+// Init box3
 for (const s of world.solids) updateBox3(s);
 for (const h of world.hazards) updateBox3(h);
 for (const cp of world.checkpoints) updateBox3(cp);
