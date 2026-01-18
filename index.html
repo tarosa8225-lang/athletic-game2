@@ -3,734 +3,427 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>FPS Athletic</title>
+  <title>Mini FPS (HTML Canvas)</title>
   <style>
-    html, body { height:100%; margin:0; background:#0b1020; overflow:hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif; }
-    #hud {
-      position: fixed; left: 12px; top: 10px;
-      color: #e8eefc; font-size: 13px;
-      background: rgba(255,255,255,.08);
-      padding: 8px 10px; border-radius: 12px;
-      border: 1px solid rgba(255,255,255,.10);
-      user-select: none;
-      backdrop-filter: blur(6px);
-      line-height: 1.45;
-      max-width: min(780px, calc(100vw - 24px));
-      z-index: 5;
-      white-space: nowrap;
+    html, body { margin: 0; height: 100%; background:#0b0f14; overflow:hidden; }
+    canvas { display:block; width:100vw; height:100vh; }
+    .hud {
+      position: fixed; inset: 0; pointer-events:none;
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+      color:#eaf2ff;
     }
-    #center { position: fixed; inset: 0; display:flex; align-items:center; justify-content:center; pointer-events:none; z-index: 4; }
-    #crosshair { width: 10px; height: 10px; border: 2px solid rgba(232,238,252,.9); border-radius: 999px; opacity: .9; box-shadow: 0 0 10px rgba(232,238,252,.25); }
-    #overlay {
-      position: fixed; inset: 0;
-      display:flex; align-items:center; justify-content:center;
-      background: radial-gradient(1200px 700px at 50% 30%, rgba(140,180,255,.22), rgba(0,0,0,.55));
-      color: #e8eefc;
-      z-index: 6;
+    .topLeft { position:absolute; left:16px; top:14px; font-size:14px; opacity:0.95; }
+    .topLeft .line { margin: 2px 0; }
+    .center { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); opacity:0.9; }
+    .crosshair {
+      width: 16px; height:16px; position:relative;
+      filter: drop-shadow(0 0 2px rgba(0,0,0,0.8));
     }
-    #panel {
-      width: min(700px, calc(100vw - 28px));
-      background: rgba(255,255,255,.08);
-      border: 1px solid rgba(255,255,255,.14);
-      border-radius: 18px;
-      padding: 16px 16px 14px;
-      box-shadow: 0 18px 60px rgba(0,0,0,.35);
+    .crosshair:before, .crosshair:after{
+      content:""; position:absolute; left:50%; top:50%;
+      background:#eaf2ff; transform:translate(-50%,-50%);
     }
-    #panel h1 { margin: 0 0 8px; font-size: 18px; }
-    #panel p { margin: 8px 0; opacity: .92; }
-    #panel kbd { padding: 2px 6px; border-radius: 6px; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.14); font-size: 12px; }
-    #btn { margin-top: 10px; display:inline-flex; gap:10px; align-items:center; padding: 10px 12px; border-radius: 12px; background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.16); cursor: pointer; user-select: none; }
-    #btn:hover { background: rgba(255,255,255,.16); }
-    #small { font-size: 12px; opacity: .82; margin-top: 10px; }
-    #errBox {
-      margin-top: 10px;
-      font-size: 12px;
-      color: #ffd3d3;
-      background: rgba(255,90,90,.12);
-      border: 1px solid rgba(255,90,90,.22);
-      padding: 8px 10px;
-      border-radius: 12px;
-      display:none;
-      white-space: pre-wrap;
+    .crosshair:before { width: 16px; height:2px; }
+    .crosshair:after { width: 2px; height:16px; }
+    .hint {
+      position:absolute; left:50%; top:60%;
+      transform:translate(-50%,-50%);
+      background: rgba(0,0,0,0.35);
+      border: 1px solid rgba(255,255,255,0.12);
+      padding: 10px 12px; border-radius: 10px;
+      font-size: 14px; line-height:1.45; text-align:center;
+      max-width: 560px;
     }
+    .hint b{ color:#fff; }
+    .bottomRight { position:absolute; right:16px; bottom:14px; font-size:14px; opacity:0.95; text-align:right;}
+    .bar {
+      height: 8px; width: 220px; background: rgba(255,255,255,0.10);
+      border-radius: 999px; overflow:hidden; border:1px solid rgba(255,255,255,0.10);
+    }
+    .bar > div { height:100%; width:50%; background: rgba(110,200,255,0.95); }
+    .small { font-size: 12px; opacity:0.8; }
   </style>
 </head>
 <body>
-  <div id="hud"></div>
-  <div id="center"><div id="crosshair"></div></div>
+  <canvas id="c"></canvas>
 
-  <div id="overlay">
-    <div id="panel">
-      <h1>FPS Athletic（3D一人称）</h1>
-      <p><b>BUILD: 20260118_6</b></p>
-      <p>操作：<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動 / <kbd>Space</kbd> ジャンプ / <kbd>Shift</kbd> ダッシュ / <kbd>R</kbd> リスタート</p>
-      <p>チェックポイント：床の<b>光る板</b>を踏むと更新</p>
-      <div id="btn">▶ クリックして開始</div>
-      <div id="small">※ ESCで解除。ゴールで次ステージへ。</div>
-      <div id="errBox"></div>
+  <div class="hud">
+    <div class="topLeft">
+      <div class="line"><b>Mini FPS</b>（HTML/Canvas 擬似3D）</div>
+      <div class="line small">クリックで開始 / ESCで解除</div>
+      <div class="line small">WASD 移動・Shift 走る・左クリック 射撃・R リロード</div>
+    </div>
+
+    <div class="center">
+      <div class="crosshair"></div>
+      <div class="hint" id="hint">
+        画面を<b>クリック</b>して開始（マウス視点が有効になる）<br/>
+        敵に照準を合わせて撃ってね
+      </div>
+    </div>
+
+    <div class="bottomRight">
+      <div id="ammo"></div>
+      <div class="bar"><div id="hpbar"></div></div>
+      <div class="small" id="status"></div>
     </div>
   </div>
 
-  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+<script>
+(() => {
+  // ========= Canvas setup =========
+  const canvas = document.getElementById("c");
+  const ctx = canvas.getContext("2d");
+  const hint = document.getElementById("hint");
+  const ammoEl = document.getElementById("ammo");
+  const hpbarEl = document.getElementById("hpbar");
+  const statusEl = document.getElementById("status");
 
-  <script>
-  (() => {
-    const BUILD = "20260118_6";
+  function resize() {
+    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    canvas.width = Math.floor(innerWidth * dpr);
+    canvas.height = Math.floor(innerHeight * dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0); // draw in CSS pixels
+  }
+  addEventListener("resize", resize);
+  resize();
 
-    const hud = document.getElementById("hud");
-    const overlay = document.getElementById("overlay");
-    const btn = document.getElementById("btn");
-    const errBox = document.getElementById("errBox");
+  // ========= Simple world =========
+  // "擬似3D": プレイヤーの視線方向に対して、敵を2D投影して描く（レイキャストは角度差で判定）
+  const TAU = Math.PI * 2;
 
-    let running = true;
+  const player = {
+    x: 0, y: 0,         // 2D平面上
+    yaw: 0,             // 視点（角度）
+    speed: 5.4,
+    sprintMul: 1.5,
+    hp: 100,
+    maxHp: 100,
+  };
 
-    function fatal(msg){
-      errBox.style.display = "block";
-      errBox.textContent = msg;
-      overlay.style.display = "flex";
-      try { document.exitPointerLock?.(); } catch {}
-      running = false;
-      console.error(msg);
-    }
-    window.addEventListener("error", (e)=> fatal("クラッシュしました:\n" + (e.message || e.error || "unknown")));
-    window.addEventListener("unhandledrejection", (e)=> fatal("クラッシュしました(Promise):\n" + (e.reason?.message || e.reason || "unknown")));
+  const gun = {
+    magSize: 24,
+    ammo: 24,
+    reloadTime: 1.1,
+    reloading: false,
+    fireRate: 10,          // shots per sec
+    lastShot: 0,
+    damage: 34,
+    spread: 0.008,         // ほんの少し拡散
+    range: 60,
+  };
 
-    if (!window.THREE) { fatal("Three.js が読み込めていません（unpkgブロック疑い）。"); return; }
-
-    // Renderer / Scene
-    const renderer = new THREE.WebGLRenderer({ antialias:true });
-    renderer.setPixelRatio(Math.min(2, devicePixelRatio||1));
-    renderer.setSize(innerWidth, innerHeight);
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
-    document.body.appendChild(renderer.domElement);
-
-    const scene = new THREE.Scene();
-    scene.fog = new THREE.Fog(0x08101a, 10, 240);
-
-    const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1400);
-
-    // FPS rig
-    const rig = new THREE.Object3D(); scene.add(rig);
-    const pitchObj = new THREE.Object3D(); rig.add(pitchObj); pitchObj.add(camera);
-
-    const PLAYER_HEIGHT = 1.75;
-    const PLAYER_RADIUS = 0.35;
-    camera.position.set(0, PLAYER_HEIGHT, 0);
-
-    let yaw=0, pitch=0;
-    const PITCH_LIMIT = Math.PI*0.49;
-
-    let locked = false;
-    function lockPointer(){ renderer.domElement.requestPointerLock(); }
-    document.addEventListener("pointerlockchange", () => {
-      locked = (document.pointerLockElement === renderer.domElement);
-      overlay.style.display = locked ? "none" : "flex";
+  // 敵（円として当たり判定）
+  let enemies = [];
+  function spawnEnemy() {
+    // プレイヤーの前方ランダムにスポーン
+    const ang = player.yaw + (Math.random()*0.9 - 0.45);
+    const dist = 10 + Math.random()*40;
+    enemies.push({
+      x: player.x + Math.cos(ang) * dist,
+      y: player.y + Math.sin(ang) * dist,
+      r: 0.55,
+      hp: 100,
+      maxHp: 100,
+      alive: true,
     });
-    btn.addEventListener("click", lockPointer);
-    overlay.addEventListener("click", (e)=>{ if(e.target===overlay) lockPointer(); });
+  }
+  for (let i=0;i<10;i++) spawnEnemy();
 
-    document.addEventListener("mousemove", (e)=>{
-      if(!locked) return;
-      const sens=0.0022;
-      yaw   -= e.movementX*sens;
-      pitch -= e.movementY*sens;
-      pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch));
-      rig.rotation.y = yaw;
-      pitchObj.rotation.x = pitch;
-    });
+  // ========= Input =========
+  const keys = new Set();
+  addEventListener("keydown", (e) => {
+    keys.add(e.code);
+    if (e.code === "KeyR") startReload();
+  });
+  addEventListener("keyup", (e) => keys.delete(e.code));
 
-    // Lights (base)
-    const hemi = new THREE.HemisphereLight(0xaad8ff, 0x0a1220, 1.05);
-    scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xffffff, 0.95);
-    sun.position.set(10, 18, 6);
-    scene.add(sun);
+  let mouseDown = false;
+  addEventListener("mousedown", (e) => { if (e.button === 0) mouseDown = true; });
+  addEventListener("mouseup", (e) => { if (e.button === 0) mouseDown = false; });
 
-    // Procedural textures
-    function makeCanvasTexture({w=256,h=256, base="#2a2f34", accent="#161a1e", speck="#4a515a", lines=false}){
-      const c = document.createElement("canvas");
-      c.width=w; c.height=h;
-      const g=c.getContext("2d");
-      g.fillStyle=base; g.fillRect(0,0,w,h);
-      for(let i=0;i<9000;i++){
-        const x=(Math.random()*w)|0, y=(Math.random()*h)|0;
-        g.fillStyle=`rgba(255,255,255,${Math.random()*0.12})`;
-        g.fillRect(x,y,1,1);
-      }
-      for(let i=0;i<220;i++){
-        const x=Math.random()*w, y=Math.random()*h, r=6+Math.random()*28;
-        g.beginPath();
-        g.fillStyle = (Math.random()<0.5? accent : speck);
-        g.globalAlpha = 0.25 + Math.random()*0.25;
-        g.arc(x,y,r,0,Math.PI*2);
-        g.fill();
-      }
-      g.globalAlpha=1;
-      if(lines){
-        g.strokeStyle="rgba(0,0,0,0.18)";
-        for(let i=0;i<26;i++){
-          g.lineWidth=1+Math.random()*2;
-          g.beginPath();
-          const y0=(i/26)*h + (Math.random()*8-4);
-          g.moveTo(0,y0);
-          for(let x=0;x<=w;x+=16) g.lineTo(x, y0 + Math.sin((x/50)+i)*3);
-          g.stroke();
-        }
-      }
-      const tex = new THREE.CanvasTexture(c);
-      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-      tex.anisotropy = 4;
-      return tex;
+  // Pointer Lock
+  function isLocked() {
+    return document.pointerLockElement === canvas;
+  }
+  canvas.addEventListener("click", async () => {
+    if (!isLocked()) {
+      canvas.requestPointerLock?.();
+    }
+  });
+
+  document.addEventListener("pointerlockchange", () => {
+    hint.style.display = isLocked() ? "none" : "block";
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (!isLocked()) return;
+    const sens = 0.0022;
+    player.yaw = (player.yaw + e.movementX * sens) % TAU;
+    if (player.yaw < 0) player.yaw += TAU;
+  });
+
+  // ========= Helpers =========
+  function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
+  function angDiff(a, b) {
+    let d = a - b;
+    while (d > Math.PI) d -= TAU;
+    while (d < -Math.PI) d += TAU;
+    return d;
+  }
+  function dist2(ax, ay, bx, by){
+    const dx = ax-bx, dy = ay-by;
+    return dx*dx + dy*dy;
+  }
+
+  // ========= Reload =========
+  function startReload() {
+    if (gun.reloading) return;
+    if (gun.ammo === gun.magSize) return;
+    gun.reloading = true;
+    statusEl.textContent = "Reloading...";
+    setTimeout(() => {
+      gun.ammo = gun.magSize;
+      gun.reloading = false;
+      statusEl.textContent = "";
+    }, gun.reloadTime * 1000);
+  }
+
+  // ========= Shooting (hitscan) =========
+  function tryShoot(now) {
+    if (!isLocked()) return;
+    if (gun.reloading) return;
+    if (!mouseDown) return;
+    const minDt = 1 / gun.fireRate;
+    if (now - gun.lastShot < minDt) return;
+
+    if (gun.ammo <= 0) {
+      startReload();
+      return;
     }
 
-    const texGround = makeCanvasTexture({ base:"#2b3b22", accent:"#1d2417", speck:"#4f6a3a" }); texGround.repeat.set(7,7);
-    const texRock   = makeCanvasTexture({ base:"#2a2f34", accent:"#161a1e", speck:"#4a515a" }); texRock.repeat.set(5,5);
-    const texMoss   = makeCanvasTexture({ base:"#2b4026", accent:"#162314", speck:"#557a43" }); texMoss.repeat.set(4,4);
-    const texWood   = makeCanvasTexture({ base:"#3b2a1d", accent:"#24180f", speck:"#6b4a2c", lines:true }); texWood.repeat.set(2,2);
+    gun.lastShot = now;
+    gun.ammo--;
 
-    function mat(map){ return new THREE.MeshStandardMaterial({ color:0xffffff, map, roughness:0.98, metalness:0.0 }); }
-    const mats = {
-      ground: mat(texGround),
-      rock:   mat(texRock),
-      moss:   mat(texMoss),
-      wood:   mat(texWood),
-      mover:  new THREE.MeshStandardMaterial({ color:0x7adcff, roughness:0.6, metalness:0.05, transparent:true, opacity:0.30 }),
-      hazard: new THREE.MeshStandardMaterial({ color:0xff5a5a, roughness:0.65, metalness:0.0, transparent:true, opacity:0.36 }),
-      cpPlate: new THREE.MeshStandardMaterial({ color:0x78ffa0, roughness:0.6, metalness:0.0, transparent:true, opacity:0.55 }),
-      cpPlateOn: new THREE.MeshStandardMaterial({ color:0x78ffa0, roughness:0.6, metalness:0.0, transparent:true, opacity:0.95 }),
-      goal:   new THREE.MeshStandardMaterial({ color:0xffdc78, roughness:0.7, metalness:0.0, transparent:true, opacity:0.30 }),
-      glow:   new THREE.MeshStandardMaterial({ color:0xffc68a, emissive:0xff9d4a, emissiveIntensity:1.2, roughness:0.7 })
+    // 目標選択：視線中心に近い敵を探し、距離と角度でヒット判定
+    // "レイ": player.yaw + spread
+    const shotYaw = player.yaw + (Math.random()*2 - 1) * gun.spread;
+
+    let best = null;
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      const dx = e.x - player.x;
+      const dy = e.y - player.y;
+      const d = Math.sqrt(dx*dx + dy*dy);
+      if (d > gun.range) continue;
+
+      const targetYaw = Math.atan2(dy, dx);
+      const dAng = Math.abs(angDiff(targetYaw, shotYaw));
+
+      // 敵の見かけ角（半径/距離）
+      const hitAng = Math.atan2(e.r, d);
+      if (dAng <= hitAng) {
+        // 中心に近い（角度が小さい）+ 近い のを優先
+        const score = dAng * 2 + d * 0.02;
+        if (!best || score < best.score) best = { e, score, d };
+      }
+    }
+
+    if (best) {
+      best.e.hp -= gun.damage;
+      if (best.e.hp <= 0) {
+        best.e.alive = false;
+        // 倒したら補充スポーン
+        setTimeout(spawnEnemy, 350);
+      }
+    }
+  }
+
+  // ========= Movement =========
+  function updateMove(dt) {
+    if (!isLocked()) return;
+
+    let vx = 0, vy = 0;
+    if (keys.has("KeyW")) { vx += Math.cos(player.yaw); vy += Math.sin(player.yaw); }
+    if (keys.has("KeyS")) { vx -= Math.cos(player.yaw); vy -= Math.sin(player.yaw); }
+    if (keys.has("KeyA")) { vx += Math.cos(player.yaw - Math.PI/2); vy += Math.sin(player.yaw - Math.PI/2); }
+    if (keys.has("KeyD")) { vx += Math.cos(player.yaw + Math.PI/2); vy += Math.sin(player.yaw + Math.PI/2); }
+
+    const len = Math.hypot(vx, vy);
+    if (len > 0.0001) { vx /= len; vy /= len; }
+
+    const sp = player.speed * (keys.has("ShiftLeft") || keys.has("ShiftRight") ? player.sprintMul : 1);
+    player.x += vx * sp * dt;
+    player.y += vy * sp * dt;
+  }
+
+  // ========= Enemy simple AI =========
+  function updateEnemies(dt) {
+    // 近い敵はプレイヤーに寄ってくる＆近距離でダメージ（超簡易）
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      const dx = player.x - e.x;
+      const dy = player.y - e.y;
+      const d = Math.hypot(dx, dy);
+      if (d > 0.001) {
+        const chase = d < 25 ? 1.4 : 0.6;
+        e.x += (dx / d) * chase * dt;
+        e.y += (dy / d) * chase * dt;
+      }
+      if (d < 1.2) {
+        player.hp -= 14 * dt; // DPS
+      }
+    }
+    player.hp = clamp(player.hp, 0, player.maxHp);
+  }
+
+  // ========= Rendering (pseudo 3D) =========
+  function render() {
+    const W = innerWidth;
+    const H = innerHeight;
+
+    // 背景（空+地面）
+    ctx.clearRect(0,0,W,H);
+    // sky
+    ctx.fillStyle = "#0b1626";
+    ctx.fillRect(0,0,W,H*0.55);
+    // ground
+    ctx.fillStyle = "#0a0f14";
+    ctx.fillRect(0,H*0.55,W,H*0.45);
+
+    // 地面のライン（疑似遠近）
+    ctx.save();
+    ctx.globalAlpha = 0.22;
+    ctx.strokeStyle = "#88a1bf";
+    for (let i=1;i<=18;i++){
+      const t = i/18;
+      const y = H*0.55 + t*t*(H*0.45);
+      ctx.beginPath();
+      ctx.moveTo(0,y);
+      ctx.lineTo(W,y);
+      ctx.stroke();
+    }
+    ctx.restore();
+
+    // ミニマップっぽい（左下）
+    ctx.save();
+    ctx.globalAlpha = 0.85;
+    ctx.fillStyle = "rgba(255,255,255,0.06)";
+    ctx.fillRect(14, H-144, 130, 130);
+    ctx.strokeStyle = "rgba(255,255,255,0.15)";
+    ctx.strokeRect(14, H-144, 130, 130);
+
+    const mmx = 14+65, mmy = H-144+65;
+    ctx.fillStyle = "rgba(110,200,255,0.95)";
+    ctx.beginPath(); ctx.arc(mmx, mmy, 3.5, 0, TAU); ctx.fill();
+    // view direction
+    ctx.strokeStyle = "rgba(110,200,255,0.95)";
+    ctx.beginPath();
+    ctx.moveTo(mmx, mmy);
+    ctx.lineTo(mmx + Math.cos(player.yaw)*18, mmy + Math.sin(player.yaw)*18);
+    ctx.stroke();
+
+    ctx.fillStyle = "rgba(255,120,120,0.9)";
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      const dx = e.x - player.x, dy = e.y - player.y;
+      const sx = mmx + dx*2.3, sy = mmy + dy*2.3;
+      if (sx < 14 || sx > 14+130 || sy < H-144 || sy > H-144+130) continue;
+      ctx.beginPath(); ctx.arc(sx, sy, 3, 0, TAU); ctx.fill();
+    }
+    ctx.restore();
+
+    // 敵を描く（視界内のものを距離順に）
+    const fov = 75 * Math.PI/180;
+    const half = fov/2;
+
+    const visibles = [];
+    for (const e of enemies) {
+      if (!e.alive) continue;
+      const dx = e.x - player.x;
+      const dy = e.y - player.y;
+      const d = Math.hypot(dx, dy);
+      const yawTo = Math.atan2(dy, dx);
+      const a = angDiff(yawTo, player.yaw);
+      if (Math.abs(a) <= half + 0.25 && d < 70) {
+        visibles.push({ e, d, a });
+      }
+    }
+    visibles.sort((a,b)=> b.d - a.d); // far first so near draws over
+
+    for (const v of visibles) {
+      const { e, d, a } = v;
+      const xNorm = (a / half) * 0.5;         // -0.5..0.5-ish
+      const x = W * (0.5 + xNorm);
+
+      // size by distance
+      const size = clamp(900 / (d + 0.1), 16, 240);
+      const y = H*0.55 - size*0.35;
+
+      // body
+      ctx.save();
+      ctx.globalAlpha = 0.95;
+      ctx.fillStyle = "rgba(255,120,120,0.92)";
+      ctx.beginPath();
+      ctx.roundRect(x - size*0.35, y - size*0.15, size*0.7, size*0.9, 10);
+      ctx.fill();
+
+      // health bar
+      const hpw = size*0.75;
+      const hpp = clamp(e.hp / e.maxHp, 0, 1);
+      ctx.fillStyle = "rgba(0,0,0,0.35)";
+      ctx.fillRect(x - hpw/2, y - 14, hpw, 8);
+      ctx.fillStyle = "rgba(255,255,255,0.85)";
+      ctx.fillRect(x - hpw/2, y - 14, hpw*hpp, 8);
+
+      // outline
+      ctx.strokeStyle = "rgba(0,0,0,0.35)";
+      ctx.strokeRect(x - size*0.35, y - size*0.15, size*0.7, size*0.9);
+      ctx.restore();
+    }
+
+    // HUD
+    ammoEl.textContent = `Ammo: ${gun.ammo}/${gun.magSize}`;
+    hpbarEl.style.width = `${(player.hp/player.maxHp)*100}%`;
+    if (player.hp <= 0) {
+      statusEl.textContent = "You are down.（リロードで復帰…じゃなくてF5でリトライw）";
+    }
+  }
+
+  // ========= Polyfill for roundRect (older browsers) =========
+  if (!CanvasRenderingContext2D.prototype.roundRect) {
+    CanvasRenderingContext2D.prototype.roundRect = function(x,y,w,h,r){
+      r = Math.min(r, w/2, h/2);
+      this.beginPath();
+      this.moveTo(x+r, y);
+      this.arcTo(x+w, y, x+w, y+h, r);
+      this.arcTo(x+w, y+h, x, y+h, r);
+      this.arcTo(x, y+h, x, y, r);
+      this.arcTo(x, y, x+w, y, r);
+      this.closePath();
+      return this;
     };
+  }
 
-    // World
-    const world = { solids:[], hazards:[], checkpoints:[], movers:[], goal:null, deco:[], lights:[], stage:0, stages:2, bounds:null };
+  // ========= Main loop =========
+  let last = performance.now() / 1000;
+  function loop() {
+    const now = performance.now() / 1000;
+    const dt = clamp(now - last, 0, 0.05);
+    last = now;
 
-    function addMesh(mesh){
-      scene.add(mesh);
-      return mesh;
+    if (player.hp > 0) {
+      updateMove(dt);
+      updateEnemies(dt);
+      tryShoot(now);
     }
 
-    function addBox(pos, size, mat, list){
-      const mesh = new THREE.Mesh(new THREE.BoxGeometry(size.x,size.y,size.z), mat);
-      mesh.position.copy(pos);
-      addMesh(mesh);
-      const obj = { mesh, box3: new THREE.Box3().setFromObject(mesh), size: size.clone() };
-      list.push(obj);
-      return obj;
-    }
-    function updateBox3(obj){ obj.box3.setFromObject(obj.mesh); }
-
-    function addTree(x,z, baseY=0){
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.24,2.4,8), mats.wood);
-      trunk.position.set(x, baseY+1.2, z);
-      const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.2,2.8,10), mats.moss);
-      leaves.position.set(x, baseY+3.2, z);
-      addMesh(trunk); addMesh(leaves);
-      world.deco.push(trunk, leaves);
-    }
-    function addRockDeco(x,z, baseY=0){
-      const r = new THREE.Mesh(new THREE.DodecahedronGeometry(0.8+Math.random()*0.9), mats.rock);
-      r.position.set(x, baseY+0.8, z);
-      r.rotation.set(Math.random(),Math.random(),Math.random());
-      addMesh(r);
-      world.deco.push(r);
-    }
-    function addTorch(x,y,z){
-      const s = new THREE.Mesh(new THREE.CylinderGeometry(0.06,0.08,1.2,8), mats.wood);
-      s.position.set(x,y+0.6,z);
-      addMesh(s); world.deco.push(s);
-
-      const flame = new THREE.Mesh(new THREE.SphereGeometry(0.22,12,12), mats.glow);
-      flame.position.set(x,y+1.25,z);
-      addMesh(flame); world.deco.push(flame);
-
-      const p = new THREE.PointLight(0xffa45a, 1.35, 18, 2.0);
-      p.position.set(x,y+1.25,z);
-      scene.add(p);
-      world.lights.push(p);
-    }
-
-    function clearStage(){
-      for(const a of [world.solids, world.hazards, world.checkpoints]){
-        for(const o of a){ scene.remove(o.mesh); }
-        a.length = 0;
-      }
-      for(const m of world.movers){ scene.remove(m.obj.mesh); }
-      world.movers.length = 0;
-      if(world.goal){ scene.remove(world.goal.mesh); world.goal=null; }
-      for(const d of world.deco){ scene.remove(d); }
-      world.deco.length = 0;
-      for(const l of world.lights){ scene.remove(l); }
-      world.lights.length = 0;
-      world.bounds = null;
-    }
-
-    // Input / physics
-    const keys = new Set();
-    addEventListener("keydown", (e)=> keys.add(e.code));
-    addEventListener("keyup", (e)=> keys.delete(e.code));
-    const want = (c)=> keys.has(c);
-    const wantRun = ()=> want("ShiftLeft") || want("ShiftRight");
-
-    let velocity = new THREE.Vector3(0,0,0);
-    let onGround = false;
-    let deaths=0;
-    let finished=false;
-    let startTime=performance.now();
-    let finishTime=0;
-
-    const GRAVITY=18.5, WALK_SPEED=6.2, RUN_SPEED=9.2, AIR_CONTROL=0.45, JUMP_V=7.6, FRICTION=12.0;
-    let jumpWasDown=false;
-
-    let spawnDefault = new THREE.Vector3(0,0.02,6);
-    let currentSpawn = spawnDefault.clone();
-
-    function setFacingForward(){
-      yaw=0; pitch=0; rig.rotation.y=yaw; pitchObj.rotation.x=pitch;
-    }
-
-    function playerAABB(posFeet){
-      return new THREE.Box3(
-        new THREE.Vector3(posFeet.x-PLAYER_RADIUS, posFeet.y, posFeet.z-PLAYER_RADIUS),
-        new THREE.Vector3(posFeet.x+PLAYER_RADIUS, posFeet.y+PLAYER_HEIGHT, posFeet.z+PLAYER_RADIUS)
-      );
-    }
-
-    // ---- Stable collision: choose best (closest) candidate only ----
-    function resolveX(pos, oldX){
-      const moved = pos.x - oldX;
-      if (moved === 0) return;
-
-      let targetX = pos.x;
-      let hit = false;
-
-      const pMinY = pos.y, pMaxY = pos.y + PLAYER_HEIGHT;
-      const pMinZ = pos.z - PLAYER_RADIUS, pMaxZ = pos.z + PLAYER_RADIUS;
-
-      for (const s of world.solids){
-        const sMin = s.box3.min, sMax = s.box3.max;
-
-        if (pMaxY <= sMin.y || pMinY >= sMax.y) continue;
-        if (pMaxZ <= sMin.z || pMinZ >= sMax.z) continue;
-
-        const pMinX = pos.x - PLAYER_RADIUS;
-        const pMaxX = pos.x + PLAYER_RADIUS;
-        if (pMaxX <= sMin.x || pMinX >= sMax.x) continue;
-
-        hit = true;
-        if (moved > 0){
-          const cand = sMin.x - PLAYER_RADIUS - 0.0005;
-          if (cand < targetX) targetX = cand;
-        } else {
-          const cand = sMax.x + PLAYER_RADIUS + 0.0005;
-          if (cand > targetX) targetX = cand;
-        }
-      }
-
-      if (hit){
-        pos.x = targetX;
-        velocity.x = 0;
-      }
-    }
-
-    function resolveZ(pos, oldZ){
-      const moved = pos.z - oldZ;
-      if (moved === 0) return;
-
-      let targetZ = pos.z;
-      let hit = false;
-
-      const pMinY = pos.y, pMaxY = pos.y + PLAYER_HEIGHT;
-      const pMinX = pos.x - PLAYER_RADIUS, pMaxX = pos.x + PLAYER_RADIUS;
-
-      for (const s of world.solids){
-        const sMin = s.box3.min, sMax = s.box3.max;
-
-        if (pMaxY <= sMin.y || pMinY >= sMax.y) continue;
-        if (pMaxX <= sMin.x || pMinX >= sMax.x) continue;
-
-        const pMinZ = pos.z - PLAYER_RADIUS;
-        const pMaxZ = pos.z + PLAYER_RADIUS;
-        if (pMaxZ <= sMin.z || pMinZ >= sMax.z) continue;
-
-        hit = true;
-        if (moved > 0){
-          const cand = sMin.z - PLAYER_RADIUS - 0.0005;
-          if (cand < targetZ) targetZ = cand;
-        } else {
-          const cand = sMax.z + PLAYER_RADIUS + 0.0005;
-          if (cand > targetZ) targetZ = cand;
-        }
-      }
-
-      if (hit){
-        pos.z = targetZ;
-        velocity.z = 0;
-      }
-    }
-
-    function resolveY(pos, oldY){
-      onGround = false;
-      const moved = pos.y - oldY;
-      if (moved === 0) return;
-
-      let bestFloorY = -Infinity;
-      let bestCeilY  = Infinity;
-      let hitFloor = false, hitCeil = false;
-
-      const pMinX = pos.x - PLAYER_RADIUS, pMaxX = pos.x + PLAYER_RADIUS;
-      const pMinZ = pos.z - PLAYER_RADIUS, pMaxZ = pos.z + PLAYER_RADIUS;
-
-      for (const s of world.solids){
-        const sMin = s.box3.min, sMax = s.box3.max;
-
-        if (pMaxX <= sMin.x || pMinX >= sMax.x) continue;
-        if (pMaxZ <= sMin.z || pMinZ >= sMax.z) continue;
-
-        const pMinY = pos.y;
-        const pMaxY = pos.y + PLAYER_HEIGHT;
-        if (pMaxY <= sMin.y || pMinY >= sMax.y) continue;
-
-        if (moved < 0){
-          if (sMax.y > bestFloorY){
-            bestFloorY = sMax.y;
-            hitFloor = true;
-          }
-        } else {
-          if (sMin.y < bestCeilY){
-            bestCeilY = sMin.y;
-            hitCeil = true;
-          }
-        }
-      }
-
-      if (moved < 0 && hitFloor){
-        pos.y = bestFloorY + 0.0005;
-        velocity.y = 0;
-        onGround = true;
-      } else if (moved > 0 && hitCeil){
-        pos.y = bestCeilY - PLAYER_HEIGHT - 0.0005;
-        velocity.y = 0;
-      }
-    }
-
-    function respawn(countDeath=true){
-      if(countDeath) deaths++;
-      velocity.set(0,0,0);
-      rig.position.copy(currentSpawn);
-      onGround=false;
-      setFacingForward();
-    }
-
-    function restart(keepDeaths=true){
-      finished=false;
-      startTime=performance.now();
-      finishTime=0;
-      for(const cp of world.checkpoints){
-        cp.hit=false;
-        cp.mesh.material = mats.cpPlate;
-      }
-      currentSpawn.copy(spawnDefault);
-      rig.position.copy(spawnDefault);
-      velocity.set(0,0,0);
-      setFacingForward();
-    }
-    addEventListener("keydown", (e)=>{ if(e.code==="KeyR") restart(true); });
-
-    function markCheckpoint(cp){
-      cp.hit=true;
-      cp.mesh.material = mats.cpPlateOn;
-      currentSpawn.copy(cp.spawn);
-    }
-
-    function buildCheckpointPlate(center){
-      const plateSize = new THREE.Vector3(2.2, 0.18, 2.2);
-      const plate = addBox(center, plateSize, mats.cpPlate, world.checkpoints);
-      plate.hit = false;
-      plate.spawn = new THREE.Vector3(center.x, center.y + 0.02, center.z + 2.0);
-      return plate;
-    }
-
-    function nextStage(){
-      world.stage = (world.stage + 1) % world.stages;
-      buildStage(world.stage);
-      restart(true);
-    }
-
-    // Movers
-    function updateMovers(dt){
-      for(const m of world.movers){
-        m.prev.copy(m.obj.mesh.position);
-        m.t += dt*m.spd;
-        const p = m.base.clone();
-        const s = Math.sin(m.t)*m.amp;
-        if(m.axis==="y") p.y += s;
-        if(m.axis==="x") p.x += s;
-        if(m.axis==="z") p.z += s;
-        m.obj.mesh.position.copy(p);
-        updateBox3(m.obj);
-      }
-    }
-
-    // Stage builder (stable spawn & reachable gaps & ambience)
-    function buildStage(idx){
-      clearStage();
-      world.stage = idx;
-
-      if(idx===0){
-        // Forest
-        scene.fog.color.set(0x0b1722);
-        scene.fog.near = 10;
-        scene.fog.far  = 280;
-        hemi.intensity = 1.05;
-        sun.intensity  = 0.95;
-
-        addBox(new THREE.Vector3(0,-0.5,-60), new THREE.Vector3(180,1,260), mats.ground, world.solids);
-        world.bounds = { xMin:-15, xMax:15, zMin:-170, zMax:30 };
-
-        const start = addBox(new THREE.Vector3(0,0.8,4), new THREE.Vector3(7,1,5), mats.moss, world.solids);
-        spawnDefault = new THREE.Vector3(0, start.box3.max.y + 0.02, start.mesh.position.z + 2.0);
-
-        addBox(new THREE.Vector3(0,1.9,-4),   new THREE.Vector3(5,1,5), mats.rock, world.solids);
-        addBox(new THREE.Vector3(0,3.0,-12),  new THREE.Vector3(5,1,5), mats.rock, world.solids);
-        addBox(new THREE.Vector3(2.2,4.1,-20),new THREE.Vector3(6,1,6), mats.moss, world.solids);
-
-        addBox(new THREE.Vector3(2.2,5.0,-28),new THREE.Vector3(7.5,0.6,1.4), mats.wood, world.solids);
-        addBox(new THREE.Vector3(2.2,5.7,-36),new THREE.Vector3(7.5,0.6,1.4), mats.wood, world.solids);
-
-        const land = addBox(new THREE.Vector3(0.5,5.1,-46), new THREE.Vector3(14,1,10), mats.rock, world.solids);
-
-        const m1 = addBox(new THREE.Vector3(-2.8,5.0,-58), new THREE.Vector3(5.2,0.7,5.2), mats.mover, world.solids);
-        world.movers.push({ obj:m1, base:m1.mesh.position.clone(), axis:"y", amp:2.0, spd:1.05, t:0, prev:m1.mesh.position.clone() });
-
-        const m2 = addBox(new THREE.Vector3(2.8,6.0,-68), new THREE.Vector3(6.6,0.7,3.4), mats.mover, world.solids);
-        world.movers.push({ obj:m2, base:m2.mesh.position.clone(), axis:"x", amp:2.6, spd:0.85, t:1.2, prev:m2.mesh.position.clone() });
-
-        addBox(new THREE.Vector3(0,7.2,-78),  new THREE.Vector3(7,1,7), mats.moss, world.solids);
-        const fin = addBox(new THREE.Vector3(0,9.0,-92), new THREE.Vector3(6,1,6), mats.rock, world.solids);
-
-        addBox(new THREE.Vector3(0, start.box3.max.y + 0.15, 4), new THREE.Vector3(3.2,0.25,3.2), mats.hazard, world.hazards);
-        addBox(new THREE.Vector3(2.2,4.8,-20), new THREE.Vector3(3.2,0.25,3.2), mats.hazard, world.hazards);
-
-        addBox(new THREE.Vector3(7.8,4.0,-70),  new THREE.Vector3(1.2,12,210), mats.rock, world.solids);
-        addBox(new THREE.Vector3(-7.8,4.0,-70), new THREE.Vector3(1.2,12,210), mats.rock, world.solids);
-
-        buildCheckpointPlate(new THREE.Vector3(0, start.box3.max.y + 0.09, 4));
-        buildCheckpointPlate(new THREE.Vector3(0.5, land.box3.max.y + 0.09, -46));
-        buildCheckpointPlate(new THREE.Vector3(0, fin.box3.max.y + 0.09, -92));
-
-        world.goal = addBox(new THREE.Vector3(0,10.0,-106), new THREE.Vector3(4,3,4), mats.goal, []);
-
-        // Surrounding forest
-        for(let i=0;i<110;i++){
-          const x = -80 + Math.random()*160;
-          const z =  20 - Math.random()*260;
-          if (Math.abs(x) < 18 && z < 18 && z > -170) continue;
-          addTree(x, z, 0);
-        }
-        for(let i=0;i<70;i++){
-          const x = -90 + Math.random()*180;
-          const z =  20 - Math.random()*270;
-          addRockDeco(x, z, 0);
-        }
-
-      } else {
-        // Cave
-        scene.fog.color.set(0x04060a);
-        scene.fog.near = 8;
-        scene.fog.far  = 170;
-        hemi.intensity = 0.55;
-        sun.intensity  = 0.15;
-
-        addBox(new THREE.Vector3(0,-0.5,-70), new THREE.Vector3(200,1,260), mats.rock, world.solids);
-        world.bounds = { xMin:-12, xMax:12, zMin:-210, zMax:30 };
-
-        addBox(new THREE.Vector3(10.5,6.0,-90),  new THREE.Vector3(4.0,16,260), mats.rock, world.solids);
-        addBox(new THREE.Vector3(-10.5,6.0,-90), new THREE.Vector3(4.0,16,260), mats.rock, world.solids);
-        addBox(new THREE.Vector3(0,14.0,-90),    new THREE.Vector3(22,3.0,240), mats.rock, world.solids);
-
-        const start = addBox(new THREE.Vector3(0,0.8,4), new THREE.Vector3(7,1,5), mats.rock, world.solids);
-        spawnDefault = new THREE.Vector3(0, start.box3.max.y + 0.02, start.mesh.position.z + 2.0);
-
-        const c1 = addBox(new THREE.Vector3(-1.2,2.0,-4),  new THREE.Vector3(5,1,5), mats.rock, world.solids);
-        const c2 = addBox(new THREE.Vector3( 2.0,3.2,-12), new THREE.Vector3(5,1,5), mats.rock, world.solids);
-        const c3 = addBox(new THREE.Vector3(-2.0,4.4,-20), new THREE.Vector3(5,1,5), mats.rock, world.solids);
-
-        for(let i=0;i<6;i++){
-          addBox(new THREE.Vector3((i%2?2.4:-2.4), 2.0+i*0.8, -30 - i*6), new THREE.Vector3(2.6, 4.0+i*0.2, 2.6), mats.rock, world.solids);
-        }
-
-        const mv = addBox(new THREE.Vector3(0,7.6,-70), new THREE.Vector3(9.0,0.7,3.4), mats.mover, world.solids);
-        world.movers.push({ obj:mv, base:mv.mesh.position.clone(), axis:"x", amp:4.2, spd:0.85, t:0.4, prev:mv.mesh.position.clone() });
-
-        const fin = addBox(new THREE.Vector3(0,8.6,-90), new THREE.Vector3(9,1,9), mats.rock, world.solids);
-
-        addBox(new THREE.Vector3(0, start.box3.max.y + 0.15, 4), new THREE.Vector3(3.0,0.25,3.0), mats.hazard, world.hazards);
-        addBox(new THREE.Vector3(0,7.0,-58), new THREE.Vector3(7.0,0.25,2.6), mats.hazard, world.hazards);
-
-        buildCheckpointPlate(new THREE.Vector3(0, start.box3.max.y + 0.09, 4));
-        buildCheckpointPlate(new THREE.Vector3(-2.0, c3.box3.max.y + 0.09, -20));
-        buildCheckpointPlate(new THREE.Vector3(0, fin.box3.max.y + 0.09, -90));
-
-        world.goal = addBox(new THREE.Vector3(0,10.0,-112), new THREE.Vector3(4,3,4), mats.goal, []);
-
-        // Torches to brighten cave
-        addTorch( 8.2, 0, -10);
-        addTorch(-8.2, 0, -28);
-        addTorch( 8.2, 0, -52);
-        addTorch(-8.2, 0, -78);
-        addTorch( 8.2, 0, -104);
-
-        for(let i=0;i<90;i++){
-          const x = -18 + Math.random()*36;
-          const z =  20 - Math.random()*260;
-          if (Math.abs(x) < 14 && z < 18 && z > -210) continue;
-          addRockDeco(x, z, 0);
-        }
-      }
-
-      currentSpawn.copy(spawnDefault);
-      rig.position.copy(spawnDefault);
-      setFacingForward();
-
-      for(const s of world.solids) updateBox3(s);
-      for(const h of world.hazards) updateBox3(h);
-      for(const cp of world.checkpoints) updateBox3(cp);
-      if(world.goal) updateBox3(world.goal);
-    }
-
-    function step(dt){
-      updateMovers(dt);
-      if(finished) return;
-
-      // Bound safety (more lenient to avoid "roll back" feel)
-      if(world.bounds){
-        const p = rig.position;
-        if(p.x < world.bounds.xMin-20 || p.x > world.bounds.xMax+20 || p.z < world.bounds.zMin-30 || p.z > world.bounds.zMax+30){
-          respawn(true);
-          return;
-        }
-      }
-
-      const wasGround = onGround;
-
-      const forward = new THREE.Vector3(0,0,-1).applyAxisAngle(new THREE.Vector3(0,1,0), yaw).normalize();
-      const right   = new THREE.Vector3(1,0,0).applyAxisAngle(new THREE.Vector3(0,1,0), yaw).normalize();
-
-      let wish = new THREE.Vector3();
-      if(want("KeyW")) wish.add(forward);
-      if(want("KeyS")) wish.sub(forward);
-      if(want("KeyD")) wish.add(right);
-      if(want("KeyA")) wish.sub(right);
-      if(wish.lengthSq()>0) wish.normalize();
-
-      const speed = wantRun()? RUN_SPEED : WALK_SPEED;
-      const targetV = wish.multiplyScalar(speed);
-
-      const accel = wasGround ? 16.0 : 10.0;
-      const control = wasGround ? 1.0 : AIR_CONTROL;
-
-      velocity.x += (targetV.x - velocity.x) * Math.min(1, accel*dt*control);
-      velocity.z += (targetV.z - velocity.z) * Math.min(1, accel*dt*control);
-
-      if(wish.lengthSq()===0 && wasGround){
-        const damp = Math.exp(-FRICTION*dt);
-        velocity.x *= damp; velocity.z *= damp;
-      }
-
-      velocity.y -= GRAVITY*dt;
-
-      const jumpDown = want("Space");
-      const jumpPressed = jumpDown && !jumpWasDown;
-      jumpWasDown = jumpDown;
-      if(jumpPressed && wasGround) velocity.y = JUMP_V;
-
-      const p = rig.position;
-      const oldX = p.x, oldY = p.y, oldZ = p.z;
-
-      p.x += velocity.x * dt;
-      resolveX(p, oldX);
-
-      p.z += velocity.z * dt;
-      resolveZ(p, oldZ);
-
-      p.y += velocity.y * dt;
-      resolveY(p, oldY);
-
-      // Carry by mover if grounded
-      if(onGround){
-        const below = p.clone(); below.y -= 0.06;
-        const belowBox = playerAABB(below);
-        for(const m of world.movers){
-          if(belowBox.intersectsBox(m.obj.box3)){
-            const delta = m.obj.mesh.position.clone().sub(m.prev);
-            p.add(delta);
-            break;
-          }
-        }
-      }
-
-      const pBoxNow = playerAABB(p);
-
-      for(const hz of world.hazards){
-        if(pBoxNow.intersectsBox(hz.box3)){ respawn(true); return; }
-      }
-
-      for(const cp of world.checkpoints){
-        if(cp.hit) continue;
-        if(!pBoxNow.intersectsBox(cp.box3)) continue;
-        const plateTop = cp.box3.max.y;
-        if(onGround && Math.abs(p.y - plateTop) < 0.12){
-          markCheckpoint(cp);
-        }
-      }
-
-      if(world.goal){
-        updateBox3(world.goal);
-        if(pBoxNow.intersectsBox(world.goal.box3)){
-          finished = true;
-          finishTime = (performance.now() - startTime)/1000;
-          setTimeout(nextStage, 650);
-        }
-      }
-
-      if(p.y < -80) respawn(true);
-    }
-
-    function restartTimersOnly(){
-      finished=false;
-      startTime=performance.now();
-      finishTime=0;
-    }
-
-    buildStage(0);
-    restart(true);
-    restartTimersOnly();
-
-    let last = performance.now();
-    function loop(now){
-      if(!running) return;
-      const dt = Math.min(0.033, (now-last)/1000);
-      last = now;
-
-      try { if(locked) step(dt); }
-      catch(e){ fatal("クラッシュしました:\n" + (e?.stack || e?.message || String(e))); return; }
-
-      const t = finished ? finishTime : (now-startTime)/1000;
-      hud.textContent = `BUILD:${BUILD}  Stage:${world.stage+1}/${world.stages}  Time:${t.toFixed(2)}  Death:${deaths}   (R=restart)`;
-
-      renderer.render(scene, camera);
-      requestAnimationFrame(loop);
-    }
+    render();
     requestAnimationFrame(loop);
+  }
+  loop();
 
-    addEventListener("resize", ()=>{
-      camera.aspect = innerWidth/innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(innerWidth, innerHeight);
-    });
-
-  })();
-  </script>
+})();
+</script>
 </body>
 </html>
