@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>FPS Athletic (Browser) - No Module</title>
+  <title>FPS Athletic (Browser) - No Examples</title>
   <style>
     html, body { height:100%; margin:0; background:#0b1020; overflow:hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif; }
     #hud {
@@ -31,7 +31,7 @@
       z-index: 6;
     }
     #panel {
-      width: min(520px, calc(100vw - 28px));
+      width: min(540px, calc(100vw - 28px));
       background: rgba(255,255,255,.08);
       border: 1px solid rgba(255,255,255,.14);
       border-radius: 18px;
@@ -79,16 +79,15 @@
     <div id="panel">
       <h1>FPS Athletic（3D一人称）</h1>
       <p>操作：<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動 / <kbd>Space</kbd> ジャンプ / <kbd>Shift</kbd> ダッシュ / <kbd>R</kbd> リスタート</p>
-      <p>視点：開始後クリックでマウスロック（FPSみたいになる）</p>
+      <p>視点：開始後クリックでマウスロック（PointerLock）</p>
       <div id="btn">▶ クリックして開始</div>
-      <div id="small">※ ESCでマウスロック解除。落下 or トゲでチェックポイントに戻る。</div>
+      <div id="small">※ ESCで解除。落下 or トゲでチェックポイントに戻る。</div>
       <div id="error"></div>
     </div>
   </div>
 
-  <!-- ✅ 非module版 Three.js -->
+  <!-- ✅ Three.js 本体だけ（examples 不要） -->
   <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
-  <script src="https://unpkg.com/three@0.160.0/examples/js/controls/PointerLockControls.js"></script>
 
   <script>
   (() => {
@@ -102,13 +101,8 @@
       err.textContent = msg;
     }
 
-    // ライブラリ読み込みチェック（ここで止まってたら原因が確定）
     if (!window.THREE) {
-      showError("Three.js が読み込めていません。\n通信制限/拡張機能/学校Wi-Fiなどで unpkg がブロックされてる可能性があります。");
-      return;
-    }
-    if (!THREE.PointerLockControls) {
-      showError("PointerLockControls が読み込めていません。\nthree/examples の読み込みがブロックされている可能性があります。");
+      showError("Three.js が読み込めていません。\nunpkg がブロックされている可能性があります。");
       return;
     }
 
@@ -124,14 +118,45 @@
 
     const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 500);
 
-    const controls = new THREE.PointerLockControls(camera, renderer.domElement);
-    scene.add(controls.getObject());
+    // --- First-person rig (no PointerLockControls) ---
+    const rig = new THREE.Object3D(); // holds position + yaw
+    rig.position.set(0, 0.02, 8);     // feet position
+    scene.add(rig);
+
+    const pitchObj = new THREE.Object3D(); // holds pitch
+    rig.add(pitchObj);
+    pitchObj.add(camera);
 
     const PLAYER_HEIGHT = 1.75;
     const PLAYER_RADIUS = 0.35;
     camera.position.set(0, PLAYER_HEIGHT, 0);
 
-    function feetPos(){ return controls.getObject().position; }
+    let yaw = 0;
+    let pitch = 0;
+    const PITCH_LIMIT = Math.PI * 0.49;
+
+    let locked = false;
+    function lockPointer(){
+      renderer.domElement.requestPointerLock();
+    }
+    document.addEventListener("pointerlockchange", () => {
+      locked = (document.pointerLockElement === renderer.domElement);
+      overlay.style.display = locked ? "none" : "flex";
+    });
+
+    btn.addEventListener("click", lockPointer);
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) lockPointer(); });
+
+    // Mouse look
+    document.addEventListener("mousemove", (e) => {
+      if (!locked) return;
+      const sens = 0.0022;
+      yaw   -= e.movementX * sens;
+      pitch -= e.movementY * sens;
+      pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch));
+      rig.rotation.y = yaw;
+      pitchObj.rotation.x = pitch;
+    });
 
     // Lights
     scene.add(new THREE.HemisphereLight(0xbad7ff, 0x0b1020, 0.85));
@@ -208,31 +233,26 @@
     addBox(new THREE.Vector3(30, 2.0, 6), new THREE.Vector3(90, 6, 1.2), matSolid, world.solids);
     addBox(new THREE.Vector3(30, 2.0, -24), new THREE.Vector3(90, 6, 1.2), matSolid, world.solids);
 
-    // --- Input ---
+    // Update boxes once (solids static except movers)
+    for (const s of world.solids) updateBox3(s);
+    for (const h of world.hazards) updateBox3(h);
+    for (const cp of world.checkpoints) updateBox3(cp);
+    updateBox3(world.goal);
+
+    // Input
     const keys = new Set();
     addEventListener("keydown", (e) => keys.add(e.code));
     addEventListener("keyup", (e) => keys.delete(e.code));
-
     const want = (c) => keys.has(c);
     const wantRun = () => want("ShiftLeft") || want("ShiftRight");
 
-    // ✅ overlay のボタン＋パネル全体でも lock できるようにする（確実化）
-    btn.addEventListener("click", () => controls.lock());
-    overlay.addEventListener("click", (e) => {
-      if (e.target === overlay) controls.lock(); // 背景クリックでも開始
-    });
-
-    controls.addEventListener("lock", () => overlay.style.display = "none");
-    controls.addEventListener("unlock", () => overlay.style.display = "flex");
-
-    // --- Physics ---
+    // Physics
     let velocity = new THREE.Vector3(0,0,0);
     let onGround = false;
     let deaths = 0;
     let finished = false;
     let startTime = performance.now();
     let finishTime = 0;
-
     const GRAVITY = 18.5;
     const WALK_SPEED = 6.2;
     const RUN_SPEED  = 9.2;
@@ -284,7 +304,7 @@
       if (countDeath) deaths++;
       velocity.set(0,0,0);
       onGround = false;
-      feetPos().copy(currentSpawn);
+      rig.position.copy(currentSpawn);
     }
 
     function restartRun(keepDeaths=false){
@@ -306,14 +326,7 @@
       currentSpawn.copy(cp.spawn);
     }
 
-    feetPos().copy(spawnDefault);
-
-    // Precompute boxes
-    for (const s of world.solids) updateBox3(s);
-    for (const h of world.hazards) updateBox3(h);
-    for (const cp of world.checkpoints) updateBox3(cp);
-    updateBox3(world.goal);
-
+    // Movers
     function updateMovers(dt){
       for (const m of world.movers){
         m.prevPos.copy(m.obj.mesh.position);
@@ -322,6 +335,7 @@
         const s = Math.sin(m.t) * m.amp;
         if (m.axis === "y") p.y += s;
         if (m.axis === "x") p.x += s;
+        if (m.axis === "z") p.z += s;
         m.obj.mesh.position.copy(p);
         updateBox3(m.obj);
       }
@@ -334,17 +348,15 @@
       const wasGround = onGround;
       onGround = false;
 
-      // Move dirs
-      const dirF = new THREE.Vector3();
-      camera.getWorldDirection(dirF);
-      dirF.y = 0; dirF.normalize();
-      const dirR = new THREE.Vector3().crossVectors(dirF, new THREE.Vector3(0,1,0)).normalize().multiplyScalar(-1);
+      // Rig forward/right from yaw only
+      const forward = new THREE.Vector3(0,0,-1).applyAxisAngle(new THREE.Vector3(0,1,0), yaw).normalize();
+      const right   = new THREE.Vector3(1,0,0).applyAxisAngle(new THREE.Vector3(0,1,0), yaw).normalize();
 
       let wish = new THREE.Vector3();
-      if (want("KeyW")) wish.add(dirF);
-      if (want("KeyS")) wish.sub(dirF);
-      if (want("KeyD")) wish.add(dirR);
-      if (want("KeyA")) wish.sub(dirR);
+      if (want("KeyW")) wish.add(forward);
+      if (want("KeyS")) wish.sub(forward);
+      if (want("KeyD")) wish.add(right);
+      if (want("KeyA")) wish.sub(right);
       if (wish.lengthSq() > 0) wish.normalize();
 
       const speed = wantRun() ? RUN_SPEED : WALK_SPEED;
@@ -368,7 +380,10 @@
       jumpWasDown = jumpDown;
       if (jumpPressed && wasGround) velocity.y = JUMP_V;
 
-      const p = feetPos();
+      // R restart
+      if (want("KeyR")) restartRun(true);
+
+      const p = rig.position;
       p.addScaledVector(velocity, dt);
 
       for (let iter=0; iter<3; iter++){
@@ -415,21 +430,21 @@
       for (const cp of world.checkpoints){
         if (!cp.hit && pBoxNow.intersectsBox(cp.box3)) markCheckpoint(cp);
       }
+      updateBox3(world.goal);
       if (pBoxNow.intersectsBox(world.goal.box3)){
         finished = true;
         finishTime = (performance.now() - startTime) / 1000;
       }
       if (p.y < -25) respawn(true);
-
-      if (want("KeyR")) restartRun(true);
     }
 
+    // Loop
     let last = performance.now();
     function loop(now){
       const dt = Math.min(0.033, (now - last) / 1000);
       last = now;
 
-      if (controls.isLocked) step(dt);
+      if (locked) step(dt);
 
       const t = finished ? finishTime : (now - startTime) / 1000;
       hud.innerHTML =
