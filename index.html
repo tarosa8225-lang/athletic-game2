@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>FPS Athletic (Browser) - No Examples</title>
+  <title>FPS Athletic - Stages + Textures</title>
   <style>
     html, body { height:100%; margin:0; background:#0b1020; overflow:hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif; }
     #hud {
@@ -14,8 +14,8 @@
       border: 1px solid rgba(255,255,255,.10);
       user-select: none;
       backdrop-filter: blur(6px);
-      line-height: 1.4;
-      max-width: min(560px, calc(100vw - 24px));
+      line-height: 1.45;
+      max-width: min(620px, calc(100vw - 24px));
       z-index: 5;
     }
     #center { position: fixed; inset: 0; display:flex; align-items:center; justify-content:center; pointer-events:none; z-index: 4; }
@@ -31,7 +31,7 @@
       z-index: 6;
     }
     #panel {
-      width: min(540px, calc(100vw - 28px));
+      width: min(560px, calc(100vw - 28px));
       background: rgba(255,255,255,.08);
       border: 1px solid rgba(255,255,255,.14);
       border-radius: 18px;
@@ -81,12 +81,12 @@
       <p>操作：<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動 / <kbd>Space</kbd> ジャンプ / <kbd>Shift</kbd> ダッシュ / <kbd>R</kbd> リスタート</p>
       <p>視点：開始後クリックでマウスロック（PointerLock）</p>
       <div id="btn">▶ クリックして開始</div>
-      <div id="small">※ ESCで解除。落下 or トゲでチェックポイントに戻る。</div>
+      <div id="small">※ ESCで解除。ゴールで次ステージへ。</div>
       <div id="error"></div>
     </div>
   </div>
 
-  <!-- ✅ Three.js 本体だけ（examples 不要） -->
+  <!-- Three.js 本体だけ（examples 不要） -->
   <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
 
   <script>
@@ -100,13 +100,12 @@
       err.style.display = "block";
       err.textContent = msg;
     }
-
     if (!window.THREE) {
       showError("Three.js が読み込めていません。\nunpkg がブロックされている可能性があります。");
       return;
     }
 
-    // --- Renderer / Scene ---
+    // ---------- Renderer / Scene ----------
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
     renderer.setSize(innerWidth, innerHeight);
@@ -114,16 +113,15 @@
     document.body.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.fog = new THREE.Fog(0x0b1020, 15, 140);
+    scene.fog = new THREE.Fog(0x08101a, 12, 160);
 
-    const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 500);
+    const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 700);
 
-    // --- First-person rig (no PointerLockControls) ---
-    const rig = new THREE.Object3D(); // holds position + yaw
-    rig.position.set(0, 0.02, 8);     // feet position
+    // ---------- First-person rig (no PointerLockControls) ----------
+    const rig = new THREE.Object3D();       // feet position + yaw
     scene.add(rig);
 
-    const pitchObj = new THREE.Object3D(); // holds pitch
+    const pitchObj = new THREE.Object3D();  // pitch
     rig.add(pitchObj);
     pitchObj.add(camera);
 
@@ -131,14 +129,12 @@
     const PLAYER_RADIUS = 0.35;
     camera.position.set(0, PLAYER_HEIGHT, 0);
 
-    let yaw = 0;
+    let yaw = 0;     // radians
     let pitch = 0;
     const PITCH_LIMIT = Math.PI * 0.49;
 
     let locked = false;
-    function lockPointer(){
-      renderer.domElement.requestPointerLock();
-    }
+    function lockPointer(){ renderer.domElement.requestPointerLock(); }
     document.addEventListener("pointerlockchange", () => {
       locked = (document.pointerLockElement === renderer.domElement);
       overlay.style.display = locked ? "none" : "flex";
@@ -147,7 +143,6 @@
     btn.addEventListener("click", lockPointer);
     overlay.addEventListener("click", (e) => { if (e.target === overlay) lockPointer(); });
 
-    // Mouse look
     document.addEventListener("mousemove", (e) => {
       if (!locked) return;
       const sens = 0.0022;
@@ -158,27 +153,107 @@
       pitchObj.rotation.x = pitch;
     });
 
-    // Lights
-    scene.add(new THREE.HemisphereLight(0xbad7ff, 0x0b1020, 0.85));
-    const dir = new THREE.DirectionalLight(0xffffff, 0.9);
-    dir.position.set(12, 18, 8);
+    // ---------- Lights ----------
+    scene.add(new THREE.HemisphereLight(0x9fd0ff, 0x071018, 0.85));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.95);
+    dir.position.set(10, 18, 6);
     scene.add(dir);
 
-    // Grid
-    const grid = new THREE.GridHelper(220, 220, 0x7aa5ff, 0x26406f);
-    grid.material.opacity = 0.18;
-    grid.material.transparent = true;
-    scene.add(grid);
+    // ---------- Procedural textures (no external files) ----------
+    function makeCanvasTexture({w=256,h=256, base="#3b4b2a", accent="#2a2f1a", speck="#6a7f3a", lines=false}){
+      const c = document.createElement("canvas");
+      c.width = w; c.height = h;
+      const g = c.getContext("2d");
 
-    // World
-    const world = { solids: [], hazards: [], checkpoints: [], goal: null, movers: [] };
+      g.fillStyle = base; g.fillRect(0,0,w,h);
 
-    const matSolid = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, metalness: 0.0, transparent: true, opacity: 0.18 });
-    const matMover = new THREE.MeshStandardMaterial({ color: 0x7adcff, roughness: 0.6, metalness: 0.05, transparent: true, opacity: 0.22 });
-    const matHazard = new THREE.MeshStandardMaterial({ color: 0xff5a5a, roughness: 0.6, metalness: 0.0, transparent: true, opacity: 0.28 });
-    const matCheckpointOff = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0.0, transparent: true, opacity: 0.35 });
-    const matCheckpointOn  = new THREE.MeshStandardMaterial({ color: 0x78ffa0, roughness: 0.6, metalness: 0.0, transparent: true, opacity: 0.9 });
-    const matGoal = new THREE.MeshStandardMaterial({ color: 0xffdc78, roughness: 0.65, metalness: 0.0, transparent: true, opacity: 0.26 });
+      // noise
+      for (let i=0;i<9000;i++){
+        const x = (Math.random()*w)|0, y=(Math.random()*h)|0;
+        const a = Math.random()*0.12;
+        g.fillStyle = `rgba(255,255,255,${a})`;
+        g.fillRect(x,y,1,1);
+      }
+      // blotches
+      for (let i=0;i<220;i++){
+        const x = Math.random()*w, y=Math.random()*h;
+        const r = 6 + Math.random()*28;
+        g.beginPath();
+        g.fillStyle = (Math.random()<0.5? accent : speck);
+        g.globalAlpha = 0.25 + Math.random()*0.25;
+        g.arc(x,y,r,0,Math.PI*2);
+        g.fill();
+      }
+      g.globalAlpha = 1;
+
+      if (lines){
+        // wood-ish rings
+        g.strokeStyle = "rgba(0,0,0,0.18)";
+        for (let i=0;i<26;i++){
+          g.lineWidth = 1 + Math.random()*2;
+          g.beginPath();
+          const y0 = (i/26)*h + (Math.random()*8-4);
+          g.moveTo(0,y0);
+          for (let x=0; x<=w; x+=16){
+            g.lineTo(x, y0 + Math.sin((x/50)+i)*3);
+          }
+          g.stroke();
+        }
+      }
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+      tex.repeat.set(2,2);
+      tex.anisotropy = 4;
+      return tex;
+    }
+
+    const texGround = makeCanvasTexture({ base:"#2b3b22", accent:"#1d2417", speck:"#4f6a3a" });
+    texGround.repeat.set(6,6);
+
+    const texRock = makeCanvasTexture({ base:"#2a2f34", accent:"#161a1e", speck:"#4a515a" });
+    texRock.repeat.set(4,4);
+
+    const texMoss = makeCanvasTexture({ base:"#2b4026", accent:"#162314", speck:"#557a43" });
+    texMoss.repeat.set(3,3);
+
+    const texWood = makeCanvasTexture({ base:"#3b2a1d", accent:"#24180f", speck:"#6b4a2c", lines:true });
+    texWood.repeat.set(2,2);
+
+    function matWithMap(color, mapTex, rough=0.95, metal=0.0, op=1.0){
+      return new THREE.MeshStandardMaterial({
+        color,
+        map: mapTex,
+        roughness: rough,
+        metalness: metal,
+        transparent: op < 1.0,
+        opacity: op
+      });
+    }
+
+    // ---------- World containers ----------
+    const world = {
+      solids: [],
+      hazards: [],
+      checkpoints: [],
+      movers: [],
+      goal: null,
+      deco: [],
+      stageIndex: 0,
+      stageCount: 2
+    };
+
+    const mats = {
+      solid:   matWithMap(0xffffff, texRock, 0.98, 0.0, 0.95),
+      moss:    matWithMap(0xffffff, texMoss, 0.95, 0.0, 0.98),
+      ground:  matWithMap(0xffffff, texGround, 0.98, 0.0, 1.0),
+      wood:    matWithMap(0xffffff, texWood, 0.92, 0.0, 1.0),
+      mover:   new THREE.MeshStandardMaterial({ color: 0x7adcff, roughness: 0.6, metalness: 0.05, transparent: true, opacity: 0.28 }),
+      hazard:  new THREE.MeshStandardMaterial({ color: 0xff5a5a, roughness: 0.65, metalness: 0.0, transparent: true, opacity: 0.35 }),
+      cpOff:   new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0.0, transparent: true, opacity: 0.40 }),
+      cpOn:    new THREE.MeshStandardMaterial({ color: 0x78ffa0, roughness: 0.6, metalness: 0.0, transparent: true, opacity: 0.95 }),
+      goal:    new THREE.MeshStandardMaterial({ color: 0xffdc78, roughness: 0.7, metalness: 0.0, transparent: true, opacity: 0.28 })
+    };
 
     function addBox(pos, size, mat, list){
       const geo = new THREE.BoxGeometry(size.x, size.y, size.z);
@@ -186,73 +261,45 @@
       mesh.position.copy(pos);
       scene.add(mesh);
       const box3 = new THREE.Box3().setFromObject(mesh);
-      const obj = { mesh, box3 };
+      const obj = { mesh, box3, size: size.clone() };
       list.push(obj);
       return obj;
     }
     function updateBox3(obj){ obj.box3.setFromObject(obj.mesh); }
 
-    // Level
-    addBox(new THREE.Vector3(0, -0.5, 0), new THREE.Vector3(20, 1, 20), matSolid, world.solids);
-
-    addBox(new THREE.Vector3(10, 0.6, -2), new THREE.Vector3(6, 1, 4), matSolid, world.solids);
-    addBox(new THREE.Vector3(18, 1.8, -5), new THREE.Vector3(4, 1, 4), matSolid, world.solids);
-    addBox(new THREE.Vector3(26, 3.0, -8), new THREE.Vector3(4, 1, 4), matSolid, world.solids);
-    addBox(new THREE.Vector3(34, 4.2, -10), new THREE.Vector3(5, 1, 5), matSolid, world.solids);
-
-    addBox(new THREE.Vector3(41, 5.1, -10), new THREE.Vector3(7, 0.6, 1.2), matSolid, world.solids);
-    addBox(new THREE.Vector3(50, 6.0, -10), new THREE.Vector3(7, 0.6, 1.2), matSolid, world.solids);
-
-    addBox(new THREE.Vector3(60, 5.2, -10), new THREE.Vector3(10, 1, 10), matSolid, world.solids);
-
-    const mover1 = addBox(new THREE.Vector3(72, 5.0, -12), new THREE.Vector3(4.5, 0.7, 4.5), matMover, world.solids);
-    world.movers.push({ obj: mover1, basePos: mover1.mesh.position.clone(), axis:"y", amp: 2.4, spd: 1.1, t: 0, prevPos: mover1.mesh.position.clone() });
-
-    const mover2 = addBox(new THREE.Vector3(82, 6.0, -12), new THREE.Vector3(6.0, 0.7, 3.0), matMover, world.solids);
-    world.movers.push({ obj: mover2, basePos: mover2.mesh.position.clone(), axis:"x", amp: 3.2, spd: 0.9, t: 1.3, prevPos: mover2.mesh.position.clone() });
-
-    addBox(new THREE.Vector3(92, 7.4, -12), new THREE.Vector3(6, 1, 6), matSolid, world.solids);
-    addBox(new THREE.Vector3(102, 9.2, -12), new THREE.Vector3(5, 1, 5), matSolid, world.solids);
-
-    addBox(new THREE.Vector3(18, 1.0, -2), new THREE.Vector3(3.2, 0.25, 3.2), matHazard, world.hazards);
-    addBox(new THREE.Vector3(41, 4.85, -8), new THREE.Vector3(3.2, 0.25, 3.2), matHazard, world.hazards);
-    addBox(new THREE.Vector3(64, 4.7, -12), new THREE.Vector3(3.0, 0.25, 3.0), matHazard, world.hazards);
-
-    function addCheckpoint(pos){
-      const cp = addBox(pos, new THREE.Vector3(0.35, 2.2, 0.35), matCheckpointOff, world.checkpoints);
-      cp.hit = false;
-      cp.spawn = pos.clone().add(new THREE.Vector3(0, 0.2, 1.6));
-      return cp;
+    function addTree(x,z, baseY=0){
+      // trunk
+      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18,0.24,2.4,8), mats.wood);
+      trunk.position.set(x, baseY+1.2, z);
+      scene.add(trunk);
+      // leaves
+      const leaves = new THREE.Mesh(new THREE.ConeGeometry(1.2,2.8,10), mats.moss);
+      leaves.position.set(x, baseY+3.2, z);
+      scene.add(leaves);
+      world.deco.push(trunk, leaves);
     }
-    addCheckpoint(new THREE.Vector3(10, 2.0, 3));
-    addCheckpoint(new THREE.Vector3(60, 7.0, -6));
-    addCheckpoint(new THREE.Vector3(92, 10.0, -8));
+    function addRock(x,z, baseY=0){
+      const r = new THREE.Mesh(new THREE.DodecahedronGeometry(0.8+Math.random()*0.9), mats.solid);
+      r.position.set(x, baseY+0.8, z);
+      r.rotation.set(Math.random(), Math.random(), Math.random());
+      scene.add(r);
+      world.deco.push(r);
+    }
 
-    world.goal = addBox(new THREE.Vector3(112, 10.0, -12), new THREE.Vector3(4, 3, 4), matGoal, []);
-
-    addBox(new THREE.Vector3(30, 2.0, 6), new THREE.Vector3(90, 6, 1.2), matSolid, world.solids);
-    addBox(new THREE.Vector3(30, 2.0, -24), new THREE.Vector3(90, 6, 1.2), matSolid, world.solids);
-
-    // Update boxes once (solids static except movers)
-    for (const s of world.solids) updateBox3(s);
-    for (const h of world.hazards) updateBox3(h);
-    for (const cp of world.checkpoints) updateBox3(cp);
-    updateBox3(world.goal);
-
-    // Input
+    // ---------- Physics ----------
     const keys = new Set();
     addEventListener("keydown", (e) => keys.add(e.code));
     addEventListener("keyup", (e) => keys.delete(e.code));
     const want = (c) => keys.has(c);
     const wantRun = () => want("ShiftLeft") || want("ShiftRight");
 
-    // Physics
     let velocity = new THREE.Vector3(0,0,0);
     let onGround = false;
     let deaths = 0;
     let finished = false;
     let startTime = performance.now();
     let finishTime = 0;
+
     const GRAVITY = 18.5;
     const WALK_SPEED = 6.2;
     const RUN_SPEED  = 9.2;
@@ -261,8 +308,16 @@
     const FRICTION = 12.0;
     let jumpWasDown = false;
 
-    const spawnDefault = new THREE.Vector3(0, 0.02, 8);
+    let spawnDefault = new THREE.Vector3(0, 0.02, 6);
     let currentSpawn = spawnDefault.clone();
+
+    function setViewFacingForward(){
+      // ステージが -Z 方向に伸びる前提で正面向きにする
+      yaw = 0;
+      pitch = 0;
+      rig.rotation.y = yaw;
+      pitchObj.rotation.x = pitch;
+    }
 
     function playerAABB(posFeet){
       return new THREE.Box3(
@@ -271,6 +326,7 @@
       );
     }
 
+    // ★重要：resolve中に「接地扱い」をしない（壁登りバグの原因だった）
     function resolveAABBAgainstBox(pBox, sBox, posFeet){
       if (!pBox.intersectsBox(sBox)) return posFeet;
 
@@ -290,8 +346,9 @@
       } else if (overlapY <= overlapX && overlapY <= overlapZ) {
         const dir = ((pMin.y + pMax.y) * 0.5) < ((sMin.y + sMax.y) * 0.5) ? -1 : 1;
         newPos.y += dir * overlapY;
-        if (dir > 0) { onGround = true; if (velocity.y < 0) velocity.y = 0; }
-        else { if (velocity.y > 0) velocity.y = 0; }
+        // ceiling / floor の衝突でY速度を止めるだけ
+        if (dir > 0 && velocity.y < 0) velocity.y = 0; // floor
+        if (dir < 0 && velocity.y > 0) velocity.y = 0; // ceiling
       } else {
         const dir = ((pMin.z + pMax.z) * 0.5) < ((sMin.z + sMax.z) * 0.5) ? -1 : 1;
         newPos.z += dir * overlapZ;
@@ -303,8 +360,8 @@
     function respawn(countDeath=true){
       if (countDeath) deaths++;
       velocity.set(0,0,0);
-      onGround = false;
       rig.position.copy(currentSpawn);
+      onGround = false;
     }
 
     function restartRun(keepDeaths=false){
@@ -312,21 +369,204 @@
       finished = false;
       startTime = performance.now();
       finishTime = 0;
+
+      // checkpoints reset
       for (const cp of world.checkpoints){
         cp.hit = false;
-        cp.mesh.material = matCheckpointOff;
+        cp.mesh.material = mats.cpOff;
       }
-      currentSpawn = spawnDefault.clone();
+      currentSpawn.copy(spawnDefault);
       respawn(false);
+      setViewFacingForward();
     }
+
+    // Rは「ロック中じゃなくても」確実に効く
+    addEventListener("keydown", (e) => {
+      if (e.code === "KeyR") restartRun(true);
+    });
 
     function markCheckpoint(cp){
       cp.hit = true;
-      cp.mesh.material = matCheckpointOn;
+      cp.mesh.material = mats.cpOn;
       currentSpawn.copy(cp.spawn);
     }
 
-    // Movers
+    function nextStage(){
+      world.stageIndex = (world.stageIndex + 1) % world.stageCount;
+      buildStage(world.stageIndex);
+      restartRun(true);
+    }
+
+    // ---------- Stage builder ----------
+    function clearStage(){
+      // remove meshes
+      const lists = [world.solids, world.hazards, world.checkpoints];
+      for (const list of lists){
+        for (const o of list){
+          scene.remove(o.mesh);
+          if (o.mesh.geometry) o.mesh.geometry.dispose?.();
+        }
+        list.length = 0;
+      }
+      for (const m of world.movers){
+        scene.remove(m.obj.mesh);
+        m.obj.mesh.geometry.dispose?.();
+      }
+      world.movers.length = 0;
+
+      if (world.goal?.mesh){
+        scene.remove(world.goal.mesh);
+        world.goal.mesh.geometry.dispose?.();
+      }
+      world.goal = null;
+
+      for (const d of world.deco){
+        scene.remove(d);
+        d.geometry?.dispose?.();
+      }
+      world.deco.length = 0;
+    }
+
+    function buildStage(idx){
+      clearStage();
+
+      // 目の前に即ステージ：スポーンと方向
+      spawnDefault = (idx === 0)
+        ? new THREE.Vector3(0, 0.02, 7)
+        : new THREE.Vector3(0, 0.02, 7);
+
+      currentSpawn.copy(spawnDefault);
+      rig.position.copy(spawnDefault);
+      setViewFacingForward();
+
+      // Ambient feel per stage
+      scene.fog.color.set(idx === 0 ? 0x08101a : 0x05080e);
+      scene.fog.near = 12;
+      scene.fog.far  = idx === 0 ? 170 : 140;
+
+      // Floor / arena
+      if (idx === 0){
+        // Forest-ish
+        addBox(new THREE.Vector3(0, -0.5, 0), new THREE.Vector3(28, 1, 28), mats.ground, world.solids);
+
+        // Course straight ahead (-Z)
+        addBox(new THREE.Vector3(0, 0.6, 2),  new THREE.Vector3(6, 1, 4), mats.moss, world.solids); // start platform visible immediately
+        addBox(new THREE.Vector3(0, 1.8, -4), new THREE.Vector3(4, 1, 4), mats.solid, world.solids);
+        addBox(new THREE.Vector3(0, 3.0, -10),new THREE.Vector3(4, 1, 4), mats.solid, world.solids);
+        addBox(new THREE.Vector3(2.2, 4.2, -16),new THREE.Vector3(5, 1, 5), mats.moss, world.solids);
+
+        // Narrow beams
+        addBox(new THREE.Vector3(2.2, 5.1, -22), new THREE.Vector3(7, 0.6, 1.2), mats.wood, world.solids);
+        addBox(new THREE.Vector3(2.2, 6.0, -30), new THREE.Vector3(7, 0.6, 1.2), mats.wood, world.solids);
+
+        // Big landing
+        addBox(new THREE.Vector3(0.5, 5.2, -40), new THREE.Vector3(12, 1, 10), mats.solid, world.solids);
+
+        // Movers
+        const mover1 = addBox(new THREE.Vector3(-3.0, 5.0, -52), new THREE.Vector3(4.5, 0.7, 4.5), mats.mover, world.solids);
+        world.movers.push({ obj: mover1, basePos: mover1.mesh.position.clone(), axis:"y", amp: 2.4, spd: 1.1, t: 0, prevPos: mover1.mesh.position.clone() });
+
+        const mover2 = addBox(new THREE.Vector3(3.5, 6.0, -62), new THREE.Vector3(6.0, 0.7, 3.0), mats.mover, world.solids);
+        world.movers.push({ obj: mover2, basePos: mover2.mesh.position.clone(), axis:"x", amp: 3.2, spd: 0.9, t: 1.3, prevPos: mover2.mesh.position.clone() });
+
+        // Final climb
+        addBox(new THREE.Vector3(0, 7.4, -74), new THREE.Vector3(6, 1, 6), mats.moss, world.solids);
+        addBox(new THREE.Vector3(0, 9.2, -86), new THREE.Vector3(5, 1, 5), mats.solid, world.solids);
+
+        // Hazards (spikes)
+        addBox(new THREE.Vector3(0, 0.15, 2),   new THREE.Vector3(3.2, 0.25, 3.2), mats.hazard, world.hazards);
+        addBox(new THREE.Vector3(2.2, 4.85, -18), new THREE.Vector3(3.2, 0.25, 3.2), mats.hazard, world.hazards);
+        addBox(new THREE.Vector3(0.5, 4.7, -40),  new THREE.Vector3(3.0, 0.25, 3.0), mats.hazard, world.hazards);
+
+        // Checkpoints
+        function addCheckpoint(pos){
+          const cp = addBox(pos, new THREE.Vector3(0.35, 2.2, 0.35), mats.cpOff, world.checkpoints);
+          cp.hit = false;
+          cp.spawn = pos.clone().add(new THREE.Vector3(0, 0.2, 1.6));
+          return cp;
+        }
+        addCheckpoint(new THREE.Vector3(0, 2.0, 6));
+        addCheckpoint(new THREE.Vector3(0.5, 7.0, -36));
+        addCheckpoint(new THREE.Vector3(0, 10.0, -80));
+
+        // Goal
+        world.goal = addBox(new THREE.Vector3(0, 10.0, -98), new THREE.Vector3(4, 3, 4), mats.goal, []);
+        world.goal.box3.setFromObject(world.goal.mesh);
+
+        // Guide walls (keep player in lane)
+        addBox(new THREE.Vector3(7.5, 3.0, -46), new THREE.Vector3(1.2, 8, 120), mats.rockSide ?? mats.solid, world.solids);
+        addBox(new THREE.Vector3(-7.5, 3.0, -46), new THREE.Vector3(1.2, 8, 120), mats.rockSide ?? mats.solid, world.solids);
+
+        // Deco: trees & rocks
+        for (let i=0;i<22;i++){
+          addTree(-11 + Math.random()*22, 10 - Math.random()*120, 0);
+        }
+        for (let i=0;i<18;i++){
+          addRock(-12 + Math.random()*24, 8 - Math.random()*120, 0);
+        }
+      } else {
+        // Cave-ish stage: darker fog, rock floor, walls and pillars
+        addBox(new THREE.Vector3(0, -0.5, 0), new THREE.Vector3(30, 1, 30), mats.solid, world.solids);
+
+        // Cave corridor walls
+        addBox(new THREE.Vector3(8.5, 4.0, -50), new THREE.Vector3(2.0, 10, 160), mats.solid, world.solids);
+        addBox(new THREE.Vector3(-8.5, 4.0, -50), new THREE.Vector3(2.0, 10, 160), mats.solid, world.solids);
+        // ceiling chunks (not fully closed to avoid claustro)
+        addBox(new THREE.Vector3(0, 12.0, -40), new THREE.Vector3(18, 1.8, 90), mats.solid, world.solids);
+
+        // Start platform right in front
+        addBox(new THREE.Vector3(0, 0.6, 2),  new THREE.Vector3(6, 1, 4), mats.solid, world.solids);
+
+        // Stepping stones
+        addBox(new THREE.Vector3(-1.5, 1.6, -6), new THREE.Vector3(3.6, 1, 3.6), mats.solid, world.solids);
+        addBox(new THREE.Vector3( 2.0, 2.6, -14),new THREE.Vector3(3.6, 1, 3.6), mats.solid, world.solids);
+        addBox(new THREE.Vector3(-2.0, 3.6, -22),new THREE.Vector3(3.6, 1, 3.6), mats.solid, world.solids);
+
+        // Pillars to jump on
+        for (let i=0;i<6;i++){
+          addBox(new THREE.Vector3((i%2?2.5:-2.5), 1.5+i*0.7, -30 - i*6), new THREE.Vector3(2.2, 3+i*0.3, 2.2), mats.solid, world.solids);
+        }
+
+        // Moving bridge
+        const mover = addBox(new THREE.Vector3(0, 6.0, -72), new THREE.Vector3(8.0, 0.7, 3.0), mats.mover, world.solids);
+        world.movers.push({ obj: mover, basePos: mover.mesh.position.clone(), axis:"x", amp: 5.0, spd: 0.85, t: 0.4, prevPos: mover.mesh.position.clone() });
+
+        // Final platform
+        addBox(new THREE.Vector3(0, 7.2, -92), new THREE.Vector3(8, 1, 8), mats.solid, world.solids);
+
+        // Hazards
+        addBox(new THREE.Vector3(0, 0.15, 2), new THREE.Vector3(3.0, 0.25, 3.0), mats.hazard, world.hazards);
+        addBox(new THREE.Vector3(0, 5.6, -58), new THREE.Vector3(6.0, 0.25, 2.2), mats.hazard, world.hazards);
+
+        // Checkpoints
+        function addCheckpoint(pos){
+          const cp = addBox(pos, new THREE.Vector3(0.35, 2.2, 0.35), mats.cpOff, world.checkpoints);
+          cp.hit = false;
+          cp.spawn = pos.clone().add(new THREE.Vector3(0, 0.2, 1.6));
+          return cp;
+        }
+        addCheckpoint(new THREE.Vector3(0, 2.0, 6));
+        addCheckpoint(new THREE.Vector3(0, 5.0, -34));
+        addCheckpoint(new THREE.Vector3(0, 8.0, -86));
+
+        // Goal (next stage)
+        world.goal = addBox(new THREE.Vector3(0, 8.5, -106), new THREE.Vector3(4, 3, 4), mats.goal, []);
+        world.goal.box3.setFromObject(world.goal.mesh);
+
+        // Deco rocks
+        for (let i=0;i<28;i++){
+          addRock(-7 + Math.random()*14, 10 - Math.random()*140, 0);
+        }
+      }
+
+      // Update all box3
+      for (const s of world.solids) updateBox3(s);
+      for (const h of world.hazards) updateBox3(h);
+      for (const cp of world.checkpoints) updateBox3(cp);
+      if (world.goal) updateBox3(world.goal);
+    }
+
+    // ---------- Movers ----------
     function updateMovers(dt){
       for (const m of world.movers){
         m.prevPos.copy(m.obj.mesh.position);
@@ -341,6 +581,7 @@
       }
     }
 
+    // ---------- Main step ----------
     function step(dt){
       updateMovers(dt);
       if (finished) return;
@@ -348,7 +589,7 @@
       const wasGround = onGround;
       onGround = false;
 
-      // Rig forward/right from yaw only
+      // Move vectors from yaw only
       const forward = new THREE.Vector3(0,0,-1).applyAxisAngle(new THREE.Vector3(0,1,0), yaw).normalize();
       const right   = new THREE.Vector3(1,0,0).applyAxisAngle(new THREE.Vector3(0,1,0), yaw).normalize();
 
@@ -375,17 +616,17 @@
 
       velocity.y -= GRAVITY * dt;
 
+      // Jump edge trigger (only when truly grounded)
       const jumpDown = want("Space");
       const jumpPressed = jumpDown && !jumpWasDown;
       jumpWasDown = jumpDown;
       if (jumpPressed && wasGround) velocity.y = JUMP_V;
 
-      // R restart
-      if (want("KeyR")) restartRun(true);
-
+      // Integrate
       const p = rig.position;
       p.addScaledVector(velocity, dt);
 
+      // Collisions
       for (let iter=0; iter<3; iter++){
         const pBox = playerAABB(p);
         let movedAny = false;
@@ -396,9 +637,9 @@
         if (!movedAny) break;
       }
 
-      // Ground probe
+      // Ground probe: “足元が本当に床の上にある”時だけ接地
       {
-        const probe = p.clone(); probe.y -= 0.03;
+        const probe = p.clone(); probe.y -= 0.04;
         const probeBox = playerAABB(probe);
         for (const s of world.solids){
           if (probeBox.intersectsBox(s.box3)){
@@ -411,7 +652,7 @@
 
       // Carry by mover
       if (onGround){
-        const below = p.clone(); below.y -= 0.04;
+        const below = p.clone(); below.y -= 0.05;
         const belowBox = playerAABB(below);
         for (const m of world.movers){
           if (belowBox.intersectsBox(m.obj.box3)){
@@ -422,6 +663,7 @@
         }
       }
 
+      // Hazards / checkpoints / goal
       const pBoxNow = playerAABB(p);
 
       for (const hz of world.hazards){
@@ -430,15 +672,25 @@
       for (const cp of world.checkpoints){
         if (!cp.hit && pBoxNow.intersectsBox(cp.box3)) markCheckpoint(cp);
       }
-      updateBox3(world.goal);
-      if (pBoxNow.intersectsBox(world.goal.box3)){
-        finished = true;
-        finishTime = (performance.now() - startTime) / 1000;
+      if (world.goal){
+        updateBox3(world.goal);
+        if (pBoxNow.intersectsBox(world.goal.box3)){
+          finished = true;
+          finishTime = (performance.now() - startTime) / 1000;
+          // 少し見せてから次ステージへ
+          setTimeout(nextStage, 650);
+        }
       }
-      if (p.y < -25) respawn(true);
+
+      // Fall death
+      if (p.y < -35) respawn(true);
     }
 
-    // Loop
+    // ---------- Init stage ----------
+    buildStage(0);
+    restartRun(true);
+
+    // ---------- Loop ----------
     let last = performance.now();
     function loop(now){
       const dt = Math.min(0.033, (now - last) / 1000);
@@ -448,9 +700,9 @@
 
       const t = finished ? finishTime : (now - startTime) / 1000;
       hud.innerHTML =
-        `Time <b>${t.toFixed(2)}</b>　|　Death <b>${deaths}</b>` +
-        (finished ? `　|　✅ CLEAR!（Rでリスタート）` : "") +
-        `<br><span style="opacity:.85">クリックで開始 / WASD / Space / Shift / ESC解除</span>`;
+        `Stage <b>${world.stageIndex + 1}</b> / ${world.stageCount}　|　Time <b>${t.toFixed(2)}</b>　|　Death <b>${deaths}</b>` +
+        (finished ? `　|　✅ CLEAR! 次へ…` : "") +
+        `<br><span style="opacity:.85">クリックで開始 / WASD / Space / Shift / R(いつでもリスタート) / ESC解除</span>`;
 
       renderer.render(scene, camera);
       requestAnimationFrame(loop);
