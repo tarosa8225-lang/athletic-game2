@@ -15,7 +15,7 @@
       user-select: none;
       backdrop-filter: blur(6px);
       line-height: 1.45;
-      max-width: min(760px, calc(100vw - 24px));
+      max-width: min(780px, calc(100vw - 24px));
       z-index: 5;
       white-space: nowrap;
     }
@@ -29,7 +29,7 @@
       z-index: 6;
     }
     #panel {
-      width: min(680px, calc(100vw - 28px));
+      width: min(700px, calc(100vw - 28px));
       background: rgba(255,255,255,.08);
       border: 1px solid rgba(255,255,255,.14);
       border-radius: 18px;
@@ -62,7 +62,7 @@
   <div id="overlay">
     <div id="panel">
       <h1>FPS Athletic（3D一人称）</h1>
-      <p><b>BUILD: 20260118_5</b></p>
+      <p><b>BUILD: 20260118_6</b></p>
       <p>操作：<kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移動 / <kbd>Space</kbd> ジャンプ / <kbd>Shift</kbd> ダッシュ / <kbd>R</kbd> リスタート</p>
       <p>チェックポイント：床の<b>光る板</b>を踏むと更新</p>
       <div id="btn">▶ クリックして開始</div>
@@ -75,11 +75,13 @@
 
   <script>
   (() => {
-    const BUILD = "20260118_5";
+    const BUILD = "20260118_6";
+
     const hud = document.getElementById("hud");
     const overlay = document.getElementById("overlay");
     const btn = document.getElementById("btn");
     const errBox = document.getElementById("errBox");
+
     let running = true;
 
     function fatal(msg){
@@ -103,9 +105,9 @@
     document.body.appendChild(renderer.domElement);
 
     const scene = new THREE.Scene();
-    scene.fog = new THREE.Fog(0x08101a, 10, 220);
+    scene.fog = new THREE.Fog(0x08101a, 10, 240);
 
-    const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1200);
+    const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 1400);
 
     // FPS rig
     const rig = new THREE.Object3D(); scene.add(rig);
@@ -138,9 +140,9 @@
     });
 
     // Lights (base)
-    const hemi = new THREE.HemisphereLight(0xaad8ff, 0x0a1220, 0.95);
+    const hemi = new THREE.HemisphereLight(0xaad8ff, 0x0a1220, 1.05);
     scene.add(hemi);
-    const sun = new THREE.DirectionalLight(0xffffff, 0.9);
+    const sun = new THREE.DirectionalLight(0xffffff, 0.95);
     sun.position.set(10, 18, 6);
     scene.add(sun);
 
@@ -294,60 +296,121 @@
       );
     }
 
-    // -------------------------
-    // ✅ 安定版：移動方向ベースの軸衝突解決
-    // これで「開始時に外へ弾かれる」「壁ジャンプで登る」系が起きにくい
-    // -------------------------
+    // ---- Stable collision: choose best (closest) candidate only ----
     function resolveX(pos, oldX){
-      const pBox = playerAABB(pos);
-      for(const s of world.solids){
-        if(!pBox.intersectsBox(s.box3)) continue;
-        if(pos.x > oldX){
-          // moved +X => push left
-          pos.x = s.box3.min.x - PLAYER_RADIUS;
-        }else if(pos.x < oldX){
-          // moved -X => push right
-          pos.x = s.box3.max.x + PLAYER_RADIUS;
+      const moved = pos.x - oldX;
+      if (moved === 0) return;
+
+      let targetX = pos.x;
+      let hit = false;
+
+      const pMinY = pos.y, pMaxY = pos.y + PLAYER_HEIGHT;
+      const pMinZ = pos.z - PLAYER_RADIUS, pMaxZ = pos.z + PLAYER_RADIUS;
+
+      for (const s of world.solids){
+        const sMin = s.box3.min, sMax = s.box3.max;
+
+        if (pMaxY <= sMin.y || pMinY >= sMax.y) continue;
+        if (pMaxZ <= sMin.z || pMinZ >= sMax.z) continue;
+
+        const pMinX = pos.x - PLAYER_RADIUS;
+        const pMaxX = pos.x + PLAYER_RADIUS;
+        if (pMaxX <= sMin.x || pMinX >= sMax.x) continue;
+
+        hit = true;
+        if (moved > 0){
+          const cand = sMin.x - PLAYER_RADIUS - 0.0005;
+          if (cand < targetX) targetX = cand;
+        } else {
+          const cand = sMax.x + PLAYER_RADIUS + 0.0005;
+          if (cand > targetX) targetX = cand;
         }
+      }
+
+      if (hit){
+        pos.x = targetX;
         velocity.x = 0;
-        pBox.min.x = pos.x - PLAYER_RADIUS;
-        pBox.max.x = pos.x + PLAYER_RADIUS;
       }
     }
 
     function resolveZ(pos, oldZ){
-      const pBox = playerAABB(pos);
-      for(const s of world.solids){
-        if(!pBox.intersectsBox(s.box3)) continue;
-        if(pos.z > oldZ){
-          // moved +Z => push back
-          pos.z = s.box3.min.z - PLAYER_RADIUS;
-        }else if(pos.z < oldZ){
-          // moved -Z => push forward
-          pos.z = s.box3.max.z + PLAYER_RADIUS;
+      const moved = pos.z - oldZ;
+      if (moved === 0) return;
+
+      let targetZ = pos.z;
+      let hit = false;
+
+      const pMinY = pos.y, pMaxY = pos.y + PLAYER_HEIGHT;
+      const pMinX = pos.x - PLAYER_RADIUS, pMaxX = pos.x + PLAYER_RADIUS;
+
+      for (const s of world.solids){
+        const sMin = s.box3.min, sMax = s.box3.max;
+
+        if (pMaxY <= sMin.y || pMinY >= sMax.y) continue;
+        if (pMaxX <= sMin.x || pMinX >= sMax.x) continue;
+
+        const pMinZ = pos.z - PLAYER_RADIUS;
+        const pMaxZ = pos.z + PLAYER_RADIUS;
+        if (pMaxZ <= sMin.z || pMinZ >= sMax.z) continue;
+
+        hit = true;
+        if (moved > 0){
+          const cand = sMin.z - PLAYER_RADIUS - 0.0005;
+          if (cand < targetZ) targetZ = cand;
+        } else {
+          const cand = sMax.z + PLAYER_RADIUS + 0.0005;
+          if (cand > targetZ) targetZ = cand;
         }
+      }
+
+      if (hit){
+        pos.z = targetZ;
         velocity.z = 0;
-        pBox.min.z = pos.z - PLAYER_RADIUS;
-        pBox.max.z = pos.z + PLAYER_RADIUS;
       }
     }
 
     function resolveY(pos, oldY){
       onGround = false;
-      const pBox = playerAABB(pos);
-      for(const s of world.solids){
-        if(!pBox.intersectsBox(s.box3)) continue;
-        if(pos.y < oldY){
-          // moving down -> land on top
-          pos.y = s.box3.max.y;
-          onGround = true;
-        } else if(pos.y > oldY){
-          // moving up -> hit ceiling
-          pos.y = s.box3.min.y - PLAYER_HEIGHT;
+      const moved = pos.y - oldY;
+      if (moved === 0) return;
+
+      let bestFloorY = -Infinity;
+      let bestCeilY  = Infinity;
+      let hitFloor = false, hitCeil = false;
+
+      const pMinX = pos.x - PLAYER_RADIUS, pMaxX = pos.x + PLAYER_RADIUS;
+      const pMinZ = pos.z - PLAYER_RADIUS, pMaxZ = pos.z + PLAYER_RADIUS;
+
+      for (const s of world.solids){
+        const sMin = s.box3.min, sMax = s.box3.max;
+
+        if (pMaxX <= sMin.x || pMinX >= sMax.x) continue;
+        if (pMaxZ <= sMin.z || pMinZ >= sMax.z) continue;
+
+        const pMinY = pos.y;
+        const pMaxY = pos.y + PLAYER_HEIGHT;
+        if (pMaxY <= sMin.y || pMinY >= sMax.y) continue;
+
+        if (moved < 0){
+          if (sMax.y > bestFloorY){
+            bestFloorY = sMax.y;
+            hitFloor = true;
+          }
+        } else {
+          if (sMin.y < bestCeilY){
+            bestCeilY = sMin.y;
+            hitCeil = true;
+          }
         }
+      }
+
+      if (moved < 0 && hitFloor){
+        pos.y = bestFloorY + 0.0005;
         velocity.y = 0;
-        pBox.min.y = pos.y;
-        pBox.max.y = pos.y + PLAYER_HEIGHT;
+        onGround = true;
+      } else if (moved > 0 && hitCeil){
+        pos.y = bestCeilY - PLAYER_HEIGHT - 0.0005;
+        velocity.y = 0;
       }
     }
 
@@ -356,7 +419,6 @@
       velocity.set(0,0,0);
       rig.position.copy(currentSpawn);
       onGround=false;
-      // 外に飛ぶ系が出ても即復帰できるように、スポーンは常に前向き
       setFacingForward();
     }
 
@@ -410,29 +472,25 @@
       }
     }
 
-    // Stage builder (距離を確実に届くように調整＆雰囲気強化)
+    // Stage builder (stable spawn & reachable gaps & ambience)
     function buildStage(idx){
       clearStage();
       world.stage = idx;
 
       if(idx===0){
-        // -------- Forest --------
+        // Forest
         scene.fog.color.set(0x0b1722);
         scene.fog.near = 10;
-        scene.fog.far  = 260;
+        scene.fog.far  = 280;
         hemi.intensity = 1.05;
         sun.intensity  = 0.95;
 
-        // big forest ground + distant ring
         addBox(new THREE.Vector3(0,-0.5,-60), new THREE.Vector3(180,1,260), mats.ground, world.solids);
-        // invisible bounds (keep you inside so you can't get "outside")
-        world.bounds = { xMin:-15, xMax:15, zMin:-160, zMax:20 };
+        world.bounds = { xMin:-15, xMax:15, zMin:-170, zMax:30 };
 
-        // Start platform (見える位置＆安全)
         const start = addBox(new THREE.Vector3(0,0.8,4), new THREE.Vector3(7,1,5), mats.moss, world.solids);
         spawnDefault = new THREE.Vector3(0, start.box3.max.y + 0.02, start.mesh.position.z + 2.0);
 
-        // Course (ギャップ短め：走らなくても届きやすい)
         addBox(new THREE.Vector3(0,1.9,-4),   new THREE.Vector3(5,1,5), mats.rock, world.solids);
         addBox(new THREE.Vector3(0,3.0,-12),  new THREE.Vector3(5,1,5), mats.rock, world.solids);
         addBox(new THREE.Vector3(2.2,4.1,-20),new THREE.Vector3(6,1,6), mats.moss, world.solids);
@@ -442,7 +500,6 @@
 
         const land = addBox(new THREE.Vector3(0.5,5.1,-46), new THREE.Vector3(14,1,10), mats.rock, world.solids);
 
-        // Movers (距離短縮して確実に次へ行ける)
         const m1 = addBox(new THREE.Vector3(-2.8,5.0,-58), new THREE.Vector3(5.2,0.7,5.2), mats.mover, world.solids);
         world.movers.push({ obj:m1, base:m1.mesh.position.clone(), axis:"y", amp:2.0, spd:1.05, t:0, prev:m1.mesh.position.clone() });
 
@@ -452,97 +509,82 @@
         addBox(new THREE.Vector3(0,7.2,-78),  new THREE.Vector3(7,1,7), mats.moss, world.solids);
         const fin = addBox(new THREE.Vector3(0,9.0,-92), new THREE.Vector3(6,1,6), mats.rock, world.solids);
 
-        // Hazards
         addBox(new THREE.Vector3(0, start.box3.max.y + 0.15, 4), new THREE.Vector3(3.2,0.25,3.2), mats.hazard, world.hazards);
         addBox(new THREE.Vector3(2.2,4.8,-20), new THREE.Vector3(3.2,0.25,3.2), mats.hazard, world.hazards);
 
-        // Side walls
-        addBox(new THREE.Vector3(7.8,3.0,-65),  new THREE.Vector3(1.2,10,190), mats.rock, world.solids);
-        addBox(new THREE.Vector3(-7.8,3.0,-65), new THREE.Vector3(1.2,10,190), mats.rock, world.solids);
+        addBox(new THREE.Vector3(7.8,4.0,-70),  new THREE.Vector3(1.2,12,210), mats.rock, world.solids);
+        addBox(new THREE.Vector3(-7.8,4.0,-70), new THREE.Vector3(1.2,12,210), mats.rock, world.solids);
 
-        // Checkpoint plates (platform topに配置)
-        const startTop = start.box3.max.y;
-        buildCheckpointPlate(new THREE.Vector3(0, startTop + 0.09, 4));
+        buildCheckpointPlate(new THREE.Vector3(0, start.box3.max.y + 0.09, 4));
         buildCheckpointPlate(new THREE.Vector3(0.5, land.box3.max.y + 0.09, -46));
         buildCheckpointPlate(new THREE.Vector3(0, fin.box3.max.y + 0.09, -92));
 
-        // Goal
         world.goal = addBox(new THREE.Vector3(0,10.0,-106), new THREE.Vector3(4,3,4), mats.goal, []);
 
-        // Forest ambiance around (周りも森っぽく)
-        for(let i=0;i<90;i++){
-          const x = -70 + Math.random()*140;
-          const z =  10 - Math.random()*230;
-          if (Math.abs(x) < 18 && z < 15 && z > -140) continue; // corridor keep clear
+        // Surrounding forest
+        for(let i=0;i<110;i++){
+          const x = -80 + Math.random()*160;
+          const z =  20 - Math.random()*260;
+          if (Math.abs(x) < 18 && z < 18 && z > -170) continue;
           addTree(x, z, 0);
         }
-        for(let i=0;i<60;i++){
-          const x = -80 + Math.random()*160;
-          const z =  10 - Math.random()*240;
+        for(let i=0;i<70;i++){
+          const x = -90 + Math.random()*180;
+          const z =  20 - Math.random()*270;
           addRockDeco(x, z, 0);
         }
 
       } else {
-        // -------- Cave --------
+        // Cave
         scene.fog.color.set(0x04060a);
         scene.fog.near = 8;
-        scene.fog.far  = 160;
+        scene.fog.far  = 170;
         hemi.intensity = 0.55;
         sun.intensity  = 0.15;
 
-        // big cave floor
         addBox(new THREE.Vector3(0,-0.5,-70), new THREE.Vector3(200,1,260), mats.rock, world.solids);
-        world.bounds = { xMin:-12, xMax:12, zMin:-190, zMax:20 };
+        world.bounds = { xMin:-12, xMax:12, zMin:-210, zMax:30 };
 
-        // Cave walls + ceiling
         addBox(new THREE.Vector3(10.5,6.0,-90),  new THREE.Vector3(4.0,16,260), mats.rock, world.solids);
         addBox(new THREE.Vector3(-10.5,6.0,-90), new THREE.Vector3(4.0,16,260), mats.rock, world.solids);
         addBox(new THREE.Vector3(0,14.0,-90),    new THREE.Vector3(22,3.0,240), mats.rock, world.solids);
 
-        // Start platform
         const start = addBox(new THREE.Vector3(0,0.8,4), new THREE.Vector3(7,1,5), mats.rock, world.solids);
         spawnDefault = new THREE.Vector3(0, start.box3.max.y + 0.02, start.mesh.position.z + 2.0);
 
-        // Stepping stones (届く距離に)
-        const a = addBox(new THREE.Vector3(-1.2,2.0,-4),  new THREE.Vector3(5,1,5), mats.rock, world.solids);
-        const b = addBox(new THREE.Vector3( 2.0,3.2,-12), new THREE.Vector3(5,1,5), mats.rock, world.solids);
-        const c = addBox(new THREE.Vector3(-2.0,4.4,-20), new THREE.Vector3(5,1,5), mats.rock, world.solids);
+        const c1 = addBox(new THREE.Vector3(-1.2,2.0,-4),  new THREE.Vector3(5,1,5), mats.rock, world.solids);
+        const c2 = addBox(new THREE.Vector3( 2.0,3.2,-12), new THREE.Vector3(5,1,5), mats.rock, world.solids);
+        const c3 = addBox(new THREE.Vector3(-2.0,4.4,-20), new THREE.Vector3(5,1,5), mats.rock, world.solids);
 
-        // Pillars
         for(let i=0;i<6;i++){
           addBox(new THREE.Vector3((i%2?2.4:-2.4), 2.0+i*0.8, -30 - i*6), new THREE.Vector3(2.6, 4.0+i*0.2, 2.6), mats.rock, world.solids);
         }
 
-        // Moving bridge (近め)
         const mv = addBox(new THREE.Vector3(0,7.6,-70), new THREE.Vector3(9.0,0.7,3.4), mats.mover, world.solids);
         world.movers.push({ obj:mv, base:mv.mesh.position.clone(), axis:"x", amp:4.2, spd:0.85, t:0.4, prev:mv.mesh.position.clone() });
 
         const fin = addBox(new THREE.Vector3(0,8.6,-90), new THREE.Vector3(9,1,9), mats.rock, world.solids);
 
-        // Hazards
         addBox(new THREE.Vector3(0, start.box3.max.y + 0.15, 4), new THREE.Vector3(3.0,0.25,3.0), mats.hazard, world.hazards);
         addBox(new THREE.Vector3(0,7.0,-58), new THREE.Vector3(7.0,0.25,2.6), mats.hazard, world.hazards);
 
-        // Checkpoint plates
         buildCheckpointPlate(new THREE.Vector3(0, start.box3.max.y + 0.09, 4));
-        buildCheckpointPlate(new THREE.Vector3(-2.0, c.box3.max.y + 0.09, -20));
+        buildCheckpointPlate(new THREE.Vector3(-2.0, c3.box3.max.y + 0.09, -20));
         buildCheckpointPlate(new THREE.Vector3(0, fin.box3.max.y + 0.09, -90));
 
-        // Goal
         world.goal = addBox(new THREE.Vector3(0,10.0,-112), new THREE.Vector3(4,3,4), mats.goal, []);
 
-        // Torches (洞窟っぽさ＋暗すぎ解消)
+        // Torches to brighten cave
         addTorch( 8.2, 0, -10);
         addTorch(-8.2, 0, -28);
         addTorch( 8.2, 0, -52);
         addTorch(-8.2, 0, -78);
         addTorch( 8.2, 0, -104);
 
-        // Cave rocks
-        for(let i=0;i<80;i++){
+        for(let i=0;i<90;i++){
           const x = -18 + Math.random()*36;
-          const z =  10 - Math.random()*220;
-          if (Math.abs(x) < 14 && z < 15 && z > -190) continue;
+          const z =  20 - Math.random()*260;
+          if (Math.abs(x) < 14 && z < 18 && z > -210) continue;
           addRockDeco(x, z, 0);
         }
       }
@@ -551,7 +593,6 @@
       rig.position.copy(spawnDefault);
       setFacingForward();
 
-      // update boxes
       for(const s of world.solids) updateBox3(s);
       for(const h of world.hazards) updateBox3(h);
       for(const cp of world.checkpoints) updateBox3(cp);
@@ -562,10 +603,10 @@
       updateMovers(dt);
       if(finished) return;
 
-      // bounds safety: if somehow out of bounds -> respawn (prevents “外に飛んで戻れない”)
+      // Bound safety (more lenient to avoid "roll back" feel)
       if(world.bounds){
         const p = rig.position;
-        if(p.x < world.bounds.xMin-6 || p.x > world.bounds.xMax+6 || p.z < world.bounds.zMin-10 || p.z > world.bounds.zMax+10){
+        if(p.x < world.bounds.xMin-20 || p.x > world.bounds.xMax+20 || p.z < world.bounds.zMin-30 || p.z > world.bounds.zMax+30){
           respawn(true);
           return;
         }
@@ -573,7 +614,6 @@
 
       const wasGround = onGround;
 
-      // movement vectors
       const forward = new THREE.Vector3(0,0,-1).applyAxisAngle(new THREE.Vector3(0,1,0), yaw).normalize();
       const right   = new THREE.Vector3(1,0,0).applyAxisAngle(new THREE.Vector3(0,1,0), yaw).normalize();
 
@@ -600,15 +640,12 @@
 
       velocity.y -= GRAVITY*dt;
 
-      // jump edge trigger
       const jumpDown = want("Space");
       const jumpPressed = jumpDown && !jumpWasDown;
       jumpWasDown = jumpDown;
       if(jumpPressed && wasGround) velocity.y = JUMP_V;
 
       const p = rig.position;
-
-      // integrate with stable axis resolution
       const oldX = p.x, oldY = p.y, oldZ = p.z;
 
       p.x += velocity.x * dt;
@@ -620,7 +657,7 @@
       p.y += velocity.y * dt;
       resolveY(p, oldY);
 
-      // mover carry if onGround
+      // Carry by mover if grounded
       if(onGround){
         const below = p.clone(); below.y -= 0.06;
         const belowBox = playerAABB(below);
@@ -635,12 +672,10 @@
 
       const pBoxNow = playerAABB(p);
 
-      // hazards
       for(const hz of world.hazards){
         if(pBoxNow.intersectsBox(hz.box3)){ respawn(true); return; }
       }
 
-      // checkpoint plates (踏んだときだけ更新)
       for(const cp of world.checkpoints){
         if(cp.hit) continue;
         if(!pBoxNow.intersectsBox(cp.box3)) continue;
@@ -650,7 +685,6 @@
         }
       }
 
-      // goal
       if(world.goal){
         updateBox3(world.goal);
         if(pBoxNow.intersectsBox(world.goal.box3)){
@@ -660,11 +694,9 @@
         }
       }
 
-      // fall
-      if(p.y < -60) respawn(true);
+      if(p.y < -80) respawn(true);
     }
 
-    // init
     function restartTimersOnly(){
       finished=false;
       startTime=performance.now();
@@ -675,7 +707,6 @@
     restart(true);
     restartTimersOnly();
 
-    // loop
     let last = performance.now();
     function loop(now){
       if(!running) return;
