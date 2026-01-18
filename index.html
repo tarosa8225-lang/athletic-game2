@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>FPS Athletic (Browser)</title>
+  <title>FPS Athletic (Browser) - No Module</title>
   <style>
     html, body { height:100%; margin:0; background:#0b1020; overflow:hidden; font-family: system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif; }
     #hud {
@@ -15,9 +15,10 @@
       user-select: none;
       backdrop-filter: blur(6px);
       line-height: 1.4;
-      max-width: min(520px, calc(100vw - 24px));
+      max-width: min(560px, calc(100vw - 24px));
+      z-index: 5;
     }
-    #center { position: fixed; inset: 0; display:flex; align-items:center; justify-content:center; pointer-events:none; }
+    #center { position: fixed; inset: 0; display:flex; align-items:center; justify-content:center; pointer-events:none; z-index: 4; }
     #crosshair {
       width: 10px; height: 10px; border: 2px solid rgba(232,238,252,.9);
       border-radius: 999px; opacity: .9; box-shadow: 0 0 10px rgba(232,238,252,.25);
@@ -27,6 +28,7 @@
       display:flex; align-items:center; justify-content:center;
       background: radial-gradient(1200px 700px at 50% 30%, rgba(140,180,255,.22), rgba(0,0,0,.55));
       color: #e8eefc;
+      z-index: 6;
     }
     #panel {
       width: min(520px, calc(100vw - 28px));
@@ -53,24 +55,24 @@
       border: 1px solid rgba(255,255,255,.16);
       cursor: pointer;
       user-select: none;
-      pointer-events: auto;
     }
     #btn:hover { background: rgba(255,255,255,.16); }
     #small { font-size: 12px; opacity: .82; margin-top: 10px; }
-    #toast {
-      position: fixed; right: 12px; top: 10px;
-      color: #e8eefc; font-size: 13px;
-      background: rgba(255,220,140,.16);
-      border: 1px solid rgba(255,220,140,.26);
-      padding: 8px 10px; border-radius: 12px;
+    #error {
+      margin-top: 10px;
+      font-size: 12px;
+      color: #ffd3d3;
+      background: rgba(255,90,90,.12);
+      border: 1px solid rgba(255,90,90,.22);
+      padding: 8px 10px;
+      border-radius: 12px;
       display:none;
-      user-select:none;
+      white-space: pre-wrap;
     }
   </style>
 </head>
 <body>
   <div id="hud"></div>
-  <div id="toast"></div>
   <div id="center"><div id="crosshair"></div></div>
 
   <div id="overlay">
@@ -80,419 +82,373 @@
       <p>視点：開始後クリックでマウスロック（FPSみたいになる）</p>
       <div id="btn">▶ クリックして開始</div>
       <div id="small">※ ESCでマウスロック解除。落下 or トゲでチェックポイントに戻る。</div>
+      <div id="error"></div>
     </div>
   </div>
 
-<script type="module">
-import * as THREE from "https://unpkg.com/three@0.160.0/build/three.module.js";
-import { PointerLockControls } from "https://unpkg.com/three@0.160.0/examples/jsm/controls/PointerLockControls.js";
+  <!-- ✅ 非module版 Three.js -->
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
+  <script src="https://unpkg.com/three@0.160.0/examples/js/controls/PointerLockControls.js"></script>
 
-const hud = document.getElementById("hud");
-const overlay = document.getElementById("overlay");
-const btn = document.getElementById("btn");
-const toast = document.getElementById("toast");
+  <script>
+  (() => {
+    const hud = document.getElementById("hud");
+    const overlay = document.getElementById("overlay");
+    const btn = document.getElementById("btn");
+    const err = document.getElementById("error");
 
-function showToast(msg, ms=1200){
-  toast.textContent = msg;
-  toast.style.display = "block";
-  clearTimeout(showToast._t);
-  showToast._t = setTimeout(()=> toast.style.display="none", ms);
-}
-
-// --- Renderer / Scene ---
-const renderer = new THREE.WebGLRenderer({ antialias: true });
-renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
-renderer.setSize(innerWidth, innerHeight);
-renderer.outputColorSpace = THREE.SRGBColorSpace;
-document.body.appendChild(renderer.domElement);
-
-const scene = new THREE.Scene();
-scene.fog = new THREE.Fog(0x0b1020, 15, 140);
-
-const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 500);
-
-// Controls (player object = feet position)
-const controls = new PointerLockControls(camera, renderer.domElement);
-scene.add(controls.getObject());
-
-// Player constants (feet-based)
-const PLAYER_HEIGHT = 1.75;
-const PLAYER_RADIUS = 0.35;
-camera.position.set(0, PLAYER_HEIGHT, 0); // camera is inside the player object
-
-function feetPos(){ return controls.getObject().position; }
-
-// --- Lights ---
-scene.add(new THREE.HemisphereLight(0xbad7ff, 0x0b1020, 0.85));
-const dir = new THREE.DirectionalLight(0xffffff, 0.9);
-dir.position.set(12, 18, 8);
-scene.add(dir);
-
-// Visual grid
-const grid = new THREE.GridHelper(220, 220, 0x7aa5ff, 0x26406f);
-grid.material.opacity = 0.18;
-grid.material.transparent = true;
-scene.add(grid);
-
-// --- World building ---
-const world = { solids: [], hazards: [], checkpoints: [], goal: null, movers: [] };
-
-const matSolid = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, metalness: 0.0, transparent: true, opacity: 0.18 });
-const matMover = new THREE.MeshStandardMaterial({ color: 0x7adcff, roughness: 0.6, metalness: 0.05, transparent: true, opacity: 0.22 });
-const matHazard = new THREE.MeshStandardMaterial({ color: 0xff5a5a, roughness: 0.6, metalness: 0.0, transparent: true, opacity: 0.28 });
-const matCheckpointOff = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0.0, transparent: true, opacity: 0.35 });
-const matCheckpointOn  = new THREE.MeshStandardMaterial({ color: 0x78ffa0, roughness: 0.6, metalness: 0.0, transparent: true, opacity: 0.9 });
-const matGoal = new THREE.MeshStandardMaterial({ color: 0xffdc78, roughness: 0.65, metalness: 0.0, transparent: true, opacity: 0.26 });
-
-function addBox({pos, size, mat, list}){
-  const geo = new THREE.BoxGeometry(size.x, size.y, size.z);
-  const mesh = new THREE.Mesh(geo, mat);
-  mesh.position.copy(pos);
-  scene.add(mesh);
-
-  const box3 = new THREE.Box3().setFromObject(mesh);
-  const obj = { mesh, box3 };
-  list.push(obj);
-  return obj;
-}
-function updateBox3(obj){ obj.box3.setFromObject(obj.mesh); }
-
-// --- Level ---
-addBox({ pos: new THREE.Vector3(0, -0.5, 0), size: new THREE.Vector3(20, 1, 20), mat: matSolid, list: world.solids });
-
-addBox({ pos: new THREE.Vector3(10, 0.6, -2), size: new THREE.Vector3(6, 1, 4), mat: matSolid, list: world.solids });
-addBox({ pos: new THREE.Vector3(18, 1.8, -5), size: new THREE.Vector3(4, 1, 4), mat: matSolid, list: world.solids });
-addBox({ pos: new THREE.Vector3(26, 3.0, -8), size: new THREE.Vector3(4, 1, 4), mat: matSolid, list: world.solids });
-addBox({ pos: new THREE.Vector3(34, 4.2, -10), size: new THREE.Vector3(5, 1, 5), mat: matSolid, list: world.solids });
-
-addBox({ pos: new THREE.Vector3(41, 5.1, -10), size: new THREE.Vector3(7, 0.6, 1.2), mat: matSolid, list: world.solids });
-addBox({ pos: new THREE.Vector3(50, 6.0, -10), size: new THREE.Vector3(7, 0.6, 1.2), mat: matSolid, list: world.solids });
-
-addBox({ pos: new THREE.Vector3(60, 5.2, -10), size: new THREE.Vector3(10, 1, 10), mat: matSolid, list: world.solids });
-
-const mover1 = addBox({ pos: new THREE.Vector3(72, 5.0, -12), size: new THREE.Vector3(4.5, 0.7, 4.5), mat: matMover, list: world.solids });
-world.movers.push({ obj: mover1, basePos: mover1.mesh.position.clone(), axis:"y", amp: 2.4, spd: 1.1, t: 0, prevPos: mover1.mesh.position.clone() });
-
-const mover2 = addBox({ pos: new THREE.Vector3(82, 6.0, -12), size: new THREE.Vector3(6.0, 0.7, 3.0), mat: matMover, list: world.solids });
-world.movers.push({ obj: mover2, basePos: mover2.mesh.position.clone(), axis:"x", amp: 3.2, spd: 0.9, t: 1.3, prevPos: mover2.mesh.position.clone() });
-
-addBox({ pos: new THREE.Vector3(92, 7.4, -12), size: new THREE.Vector3(6, 1, 6), mat: matSolid, list: world.solids });
-addBox({ pos: new THREE.Vector3(102, 9.2, -12), size: new THREE.Vector3(5, 1, 5), mat: matSolid, list: world.solids });
-
-addBox({ pos: new THREE.Vector3(18, 1.0, -2), size: new THREE.Vector3(3.2, 0.25, 3.2), mat: matHazard, list: world.hazards });
-addBox({ pos: new THREE.Vector3(41, 4.85, -8), size: new THREE.Vector3(3.2, 0.25, 3.2), mat: matHazard, list: world.hazards });
-addBox({ pos: new THREE.Vector3(64, 4.7, -12), size: new THREE.Vector3(3.0, 0.25, 3.0), mat: matHazard, list: world.hazards });
-
-function addCheckpoint(pos){
-  const cp = addBox({ pos, size: new THREE.Vector3(0.35, 2.2, 0.35), mat: matCheckpointOff, list: world.checkpoints });
-  cp.hit = false;
-  // spawn = ちょい前＆ちょい上（足元座標）
-  cp.spawn = pos.clone().add(new THREE.Vector3(0, 0.2, 1.6));
-  return cp;
-}
-addCheckpoint(new THREE.Vector3(10, 2.0, 3));
-addCheckpoint(new THREE.Vector3(60, 7.0, -6));
-addCheckpoint(new THREE.Vector3(92, 10.0, -8));
-
-world.goal = addBox({ pos: new THREE.Vector3(112, 10.0, -12), size: new THREE.Vector3(4, 3, 4), mat: matGoal, list: [] });
-
-addBox({ pos: new THREE.Vector3(30, 2.0, 6), size: new THREE.Vector3(90, 6, 1.2), mat: matSolid, list: world.solids });
-addBox({ pos: new THREE.Vector3(30, 2.0, -24), size: new THREE.Vector3(90, 6, 1.2), mat: matSolid, list: world.solids });
-
-// --- Input ---
-const keys = new Set();
-window.addEventListener("keydown", (e) => { keys.add(e.code); if (e.code === "KeyR") restartRun(true); });
-window.addEventListener("keyup", (e) => keys.delete(e.code));
-
-const wantForward = () => keys.has("KeyW");
-const wantBack = () => keys.has("KeyS");
-const wantLeft = () => keys.has("KeyA");
-const wantRight = () => keys.has("KeyD");
-const wantJump = () => keys.has("Space");
-const wantRun = () => keys.has("ShiftLeft") || keys.has("ShiftRight");
-
-// Pointer lock
-btn.addEventListener("click", () => controls.lock());
-controls.addEventListener("lock", () => overlay.style.display = "none");
-controls.addEventListener("unlock", () => overlay.style.display = "flex");
-
-// --- Physics ---
-let velocity = new THREE.Vector3(0,0,0);
-let onGround = false;
-let deaths = 0;
-let finished = false;
-let startTime = performance.now();
-let finishTime = 0;
-
-const GRAVITY = 18.5;
-const WALK_SPEED = 6.2;
-const RUN_SPEED  = 9.2;
-const AIR_CONTROL = 0.45;
-const JUMP_V = 7.6;
-const FRICTION = 12.0;
-
-let jumpWasDown = false;
-
-const spawnDefault = new THREE.Vector3(0, 0.02, 8); // 足元が床上になるように
-let currentSpawn = spawnDefault.clone();
-
-function playerAABB(posFeet){
-  // feet-based AABB: y from feet to feet+height
-  return new THREE.Box3(
-    new THREE.Vector3(posFeet.x - PLAYER_RADIUS, posFeet.y, posFeet.z - PLAYER_RADIUS),
-    new THREE.Vector3(posFeet.x + PLAYER_RADIUS, posFeet.y + PLAYER_HEIGHT, posFeet.z + PLAYER_RADIUS)
-  );
-}
-
-function resolveAABBAgainstBox(pBox, sBox, posFeet){
-  if (!pBox.intersectsBox(sBox)) return { moved:false, pos: posFeet };
-
-  const pMin = pBox.min, pMax = pBox.max;
-  const sMin = sBox.min, sMax = sBox.max;
-
-  const overlapX = Math.min(pMax.x - sMin.x, sMax.x - pMin.x);
-  const overlapY = Math.min(pMax.y - sMin.y, sMax.y - pMin.y);
-  const overlapZ = Math.min(pMax.z - sMin.z, sMax.z - pMin.z);
-
-  const newPos = posFeet.clone();
-  let moved = false;
-
-  if (overlapX <= overlapY && overlapX <= overlapZ) {
-    const pCenterX = (pMin.x + pMax.x) * 0.5;
-    const sCenterX = (sMin.x + sMax.x) * 0.5;
-    const dir = pCenterX < sCenterX ? -1 : 1;
-    newPos.x += dir * overlapX;
-    velocity.x = 0;
-    moved = true;
-  } else if (overlapY <= overlapX && overlapY <= overlapZ) {
-    const pCenterY = (pMin.y + pMax.y) * 0.5;
-    const sCenterY = (sMin.y + sMax.y) * 0.5;
-    const dir = pCenterY < sCenterY ? -1 : 1;
-    newPos.y += dir * overlapY;
-    if (dir > 0) {
-      // pushed upward => landed on something (feet on top)
-      onGround = true;
-      if (velocity.y < 0) velocity.y = 0;
-    } else {
-      // hit ceiling
-      if (velocity.y > 0) velocity.y = 0;
+    function showError(msg){
+      err.style.display = "block";
+      err.textContent = msg;
     }
-    moved = true;
-  } else {
-    const pCenterZ = (pMin.z + pMax.z) * 0.5;
-    const sCenterZ = (sMin.z + sMax.z) * 0.5;
-    const dir = pCenterZ < sCenterZ ? -1 : 1;
-    newPos.z += dir * overlapZ;
-    velocity.z = 0;
-    moved = true;
-  }
 
-  return { moved, pos: newPos };
-}
-
-function setSpawn(v3){ currentSpawn.copy(v3); }
-
-function respawn(countDeath=true){
-  if (countDeath) deaths++;
-  velocity.set(0,0,0);
-  onGround = false;
-  feetPos().copy(currentSpawn);
-}
-
-function restartRun(keepDeaths=false){
-  if (!keepDeaths) deaths = 0;
-  finished = false;
-  startTime = performance.now();
-  finishTime = 0;
-  for (const cp of world.checkpoints){
-    cp.hit = false;
-    cp.mesh.material = matCheckpointOff;
-  }
-  setSpawn(spawnDefault);
-  respawn(false);
-  showToast("リスタート！");
-}
-
-function markCheckpoint(cp){
-  cp.hit = true;
-  cp.mesh.material = matCheckpointOn;
-  setSpawn(cp.spawn);
-  showToast("チェックポイント更新");
-}
-
-// Initialize
-feetPos().copy(spawnDefault);
-
-function updateMovers(dt){
-  for (const m of world.movers){
-    m.prevPos.copy(m.obj.mesh.position);
-    m.t += dt * m.spd;
-    const p = m.basePos.clone();
-    const s = Math.sin(m.t) * m.amp;
-    if (m.axis === "y") p.y += s;
-    if (m.axis === "x") p.x += s;
-    if (m.axis === "z") p.z += s;
-    m.obj.mesh.position.copy(p);
-    updateBox3(m.obj);
-  }
-}
-
-function step(dt){
-  updateMovers(dt);
-
-  if (finished) return;
-
-  // keep last onGround for movement feel, then recompute via collision
-  const wasGround = onGround;
-  onGround = false;
-
-  // Direction vectors (yaw)
-  const dirF = new THREE.Vector3();
-  camera.getWorldDirection(dirF);
-  dirF.y = 0; dirF.normalize();
-  const dirR = new THREE.Vector3().crossVectors(dirF, new THREE.Vector3(0,1,0)).normalize().multiplyScalar(-1);
-
-  let wish = new THREE.Vector3();
-  if (wantForward()) wish.add(dirF);
-  if (wantBack()) wish.sub(dirF);
-  if (wantRight()) wish.add(dirR);
-  if (wantLeft()) wish.sub(dirR);
-  if (wish.lengthSq() > 0) wish.normalize();
-
-  const speed = wantRun() ? RUN_SPEED : WALK_SPEED;
-  const targetV = wish.multiplyScalar(speed);
-
-  const accel = wasGround ? 16.0 : 10.0;
-  const control = wasGround ? 1.0 : AIR_CONTROL;
-
-  velocity.x += (targetV.x - velocity.x) * Math.min(1, accel * dt * control);
-  velocity.z += (targetV.z - velocity.z) * Math.min(1, accel * dt * control);
-
-  if (wish.lengthSq() === 0 && wasGround){
-    const damp = Math.exp(-FRICTION * dt);
-    velocity.x *= damp;
-    velocity.z *= damp;
-  }
-
-  // Gravity
-  velocity.y -= GRAVITY * dt;
-
-  // Jump (edge trigger)
-  const jumpDown = wantJump();
-  const jumpPressed = jumpDown && !jumpWasDown;
-  jumpWasDown = jumpDown;
-  if (jumpPressed && wasGround){
-    velocity.y = JUMP_V;
-  }
-
-  // Integrate feet position
-  const p = feetPos();
-  p.addScaledVector(velocity, dt);
-
-  // Collisions (a few iterations)
-  for (let iter=0; iter<3; iter++){
-    const pBox = playerAABB(p);
-    let movedAny = false;
-    for (const s of world.solids){
-      const res = resolveAABBAgainstBox(pBox, s.box3, p);
-      if (res.moved){
-        p.copy(res.pos);
-        movedAny = true;
-      }
-    }
-    if (!movedAny) break;
-  }
-
-  // Ground probe: tiny down to confirm standing
-  {
-    const probe = p.clone(); probe.y -= 0.03;
-    const probeBox = playerAABB(probe);
-    for (const s of world.solids){
-      if (probeBox.intersectsBox(s.box3)){
-        onGround = true;
-        if (velocity.y < 0) velocity.y = 0;
-        break;
-      }
-    }
-  }
-
-  // Carry by movers if standing on one
-  if (onGround){
-    const below = p.clone(); below.y -= 0.04;
-    const belowBox = playerAABB(below);
-    for (const m of world.movers){
-      if (belowBox.intersectsBox(m.obj.box3)){
-        const delta = m.obj.mesh.position.clone().sub(m.prevPos);
-        p.add(delta);
-        break;
-      }
-    }
-  }
-
-  // Hazards
-  const pBoxNow = playerAABB(p);
-  for (const hz of world.hazards){
-    if (pBoxNow.intersectsBox(hz.box3)){
-      respawn(true);
-      showToast("トゲ！戻された");
+    // ライブラリ読み込みチェック（ここで止まってたら原因が確定）
+    if (!window.THREE) {
+      showError("Three.js が読み込めていません。\n通信制限/拡張機能/学校Wi-Fiなどで unpkg がブロックされてる可能性があります。");
       return;
     }
-  }
-
-  // Checkpoints
-  for (const cp of world.checkpoints){
-    updateBox3(cp);
-    if (!cp.hit && pBoxNow.intersectsBox(cp.box3)){
-      markCheckpoint(cp);
+    if (!THREE.PointerLockControls) {
+      showError("PointerLockControls が読み込めていません。\nthree/examples の読み込みがブロックされている可能性があります。");
+      return;
     }
-  }
 
-  // Goal
-  updateBox3(world.goal);
-  if (pBoxNow.intersectsBox(world.goal.box3)){
-    finished = true;
-    finishTime = (performance.now() - startTime) / 1000;
-    showToast(`CLEAR! ${finishTime.toFixed(2)}s`, 2200);
-  }
+    // --- Renderer / Scene ---
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+    renderer.setSize(innerWidth, innerHeight);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    document.body.appendChild(renderer.domElement);
 
-  // Fall death
-  if (p.y < -25){
-    respawn(true);
-    showToast("落下！戻された");
-  }
-}
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.Fog(0x0b1020, 15, 140);
 
-// --- Loop ---
-let last = performance.now();
-function loop(now){
-  const dt = Math.min(0.033, (now - last) / 1000);
-  last = now;
+    const camera = new THREE.PerspectiveCamera(75, innerWidth/innerHeight, 0.1, 500);
 
-  if (controls.isLocked) step(dt);
+    const controls = new THREE.PointerLockControls(camera, renderer.domElement);
+    scene.add(controls.getObject());
 
-  const t = finished ? finishTime : (now - startTime) / 1000;
-  hud.innerHTML =
-    `Time <b>${t.toFixed(2)}</b>　|　Death <b>${deaths}</b>` +
-    (finished ? `　|　✅ CLEAR! <span style="opacity:.9">（Rでリスタート）</span>` : "") +
-    `<br><span style="opacity:.85">WASD移動 / Spaceジャンプ / Shiftダッシュ / Rリスタート / ESC解除</span>`;
+    const PLAYER_HEIGHT = 1.75;
+    const PLAYER_RADIUS = 0.35;
+    camera.position.set(0, PLAYER_HEIGHT, 0);
 
-  renderer.render(scene, camera);
-  requestAnimationFrame(loop);
-}
-requestAnimationFrame(loop);
+    function feetPos(){ return controls.getObject().position; }
 
-window.addEventListener("resize", () => {
-  camera.aspect = innerWidth/innerHeight;
-  camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-});
+    // Lights
+    scene.add(new THREE.HemisphereLight(0xbad7ff, 0x0b1020, 0.85));
+    const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+    dir.position.set(12, 18, 8);
+    scene.add(dir);
 
-// Init box3
-for (const s of world.solids) updateBox3(s);
-for (const h of world.hazards) updateBox3(h);
-for (const cp of world.checkpoints) updateBox3(cp);
-updateBox3(world.goal);
+    // Grid
+    const grid = new THREE.GridHelper(220, 220, 0x7aa5ff, 0x26406f);
+    grid.material.opacity = 0.18;
+    grid.material.transparent = true;
+    scene.add(grid);
 
-</script>
+    // World
+    const world = { solids: [], hazards: [], checkpoints: [], goal: null, movers: [] };
+
+    const matSolid = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.85, metalness: 0.0, transparent: true, opacity: 0.18 });
+    const matMover = new THREE.MeshStandardMaterial({ color: 0x7adcff, roughness: 0.6, metalness: 0.05, transparent: true, opacity: 0.22 });
+    const matHazard = new THREE.MeshStandardMaterial({ color: 0xff5a5a, roughness: 0.6, metalness: 0.0, transparent: true, opacity: 0.28 });
+    const matCheckpointOff = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.8, metalness: 0.0, transparent: true, opacity: 0.35 });
+    const matCheckpointOn  = new THREE.MeshStandardMaterial({ color: 0x78ffa0, roughness: 0.6, metalness: 0.0, transparent: true, opacity: 0.9 });
+    const matGoal = new THREE.MeshStandardMaterial({ color: 0xffdc78, roughness: 0.65, metalness: 0.0, transparent: true, opacity: 0.26 });
+
+    function addBox(pos, size, mat, list){
+      const geo = new THREE.BoxGeometry(size.x, size.y, size.z);
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.position.copy(pos);
+      scene.add(mesh);
+      const box3 = new THREE.Box3().setFromObject(mesh);
+      const obj = { mesh, box3 };
+      list.push(obj);
+      return obj;
+    }
+    function updateBox3(obj){ obj.box3.setFromObject(obj.mesh); }
+
+    // Level
+    addBox(new THREE.Vector3(0, -0.5, 0), new THREE.Vector3(20, 1, 20), matSolid, world.solids);
+
+    addBox(new THREE.Vector3(10, 0.6, -2), new THREE.Vector3(6, 1, 4), matSolid, world.solids);
+    addBox(new THREE.Vector3(18, 1.8, -5), new THREE.Vector3(4, 1, 4), matSolid, world.solids);
+    addBox(new THREE.Vector3(26, 3.0, -8), new THREE.Vector3(4, 1, 4), matSolid, world.solids);
+    addBox(new THREE.Vector3(34, 4.2, -10), new THREE.Vector3(5, 1, 5), matSolid, world.solids);
+
+    addBox(new THREE.Vector3(41, 5.1, -10), new THREE.Vector3(7, 0.6, 1.2), matSolid, world.solids);
+    addBox(new THREE.Vector3(50, 6.0, -10), new THREE.Vector3(7, 0.6, 1.2), matSolid, world.solids);
+
+    addBox(new THREE.Vector3(60, 5.2, -10), new THREE.Vector3(10, 1, 10), matSolid, world.solids);
+
+    const mover1 = addBox(new THREE.Vector3(72, 5.0, -12), new THREE.Vector3(4.5, 0.7, 4.5), matMover, world.solids);
+    world.movers.push({ obj: mover1, basePos: mover1.mesh.position.clone(), axis:"y", amp: 2.4, spd: 1.1, t: 0, prevPos: mover1.mesh.position.clone() });
+
+    const mover2 = addBox(new THREE.Vector3(82, 6.0, -12), new THREE.Vector3(6.0, 0.7, 3.0), matMover, world.solids);
+    world.movers.push({ obj: mover2, basePos: mover2.mesh.position.clone(), axis:"x", amp: 3.2, spd: 0.9, t: 1.3, prevPos: mover2.mesh.position.clone() });
+
+    addBox(new THREE.Vector3(92, 7.4, -12), new THREE.Vector3(6, 1, 6), matSolid, world.solids);
+    addBox(new THREE.Vector3(102, 9.2, -12), new THREE.Vector3(5, 1, 5), matSolid, world.solids);
+
+    addBox(new THREE.Vector3(18, 1.0, -2), new THREE.Vector3(3.2, 0.25, 3.2), matHazard, world.hazards);
+    addBox(new THREE.Vector3(41, 4.85, -8), new THREE.Vector3(3.2, 0.25, 3.2), matHazard, world.hazards);
+    addBox(new THREE.Vector3(64, 4.7, -12), new THREE.Vector3(3.0, 0.25, 3.0), matHazard, world.hazards);
+
+    function addCheckpoint(pos){
+      const cp = addBox(pos, new THREE.Vector3(0.35, 2.2, 0.35), matCheckpointOff, world.checkpoints);
+      cp.hit = false;
+      cp.spawn = pos.clone().add(new THREE.Vector3(0, 0.2, 1.6));
+      return cp;
+    }
+    addCheckpoint(new THREE.Vector3(10, 2.0, 3));
+    addCheckpoint(new THREE.Vector3(60, 7.0, -6));
+    addCheckpoint(new THREE.Vector3(92, 10.0, -8));
+
+    world.goal = addBox(new THREE.Vector3(112, 10.0, -12), new THREE.Vector3(4, 3, 4), matGoal, []);
+
+    addBox(new THREE.Vector3(30, 2.0, 6), new THREE.Vector3(90, 6, 1.2), matSolid, world.solids);
+    addBox(new THREE.Vector3(30, 2.0, -24), new THREE.Vector3(90, 6, 1.2), matSolid, world.solids);
+
+    // --- Input ---
+    const keys = new Set();
+    addEventListener("keydown", (e) => keys.add(e.code));
+    addEventListener("keyup", (e) => keys.delete(e.code));
+
+    const want = (c) => keys.has(c);
+    const wantRun = () => want("ShiftLeft") || want("ShiftRight");
+
+    // ✅ overlay のボタン＋パネル全体でも lock できるようにする（確実化）
+    btn.addEventListener("click", () => controls.lock());
+    overlay.addEventListener("click", (e) => {
+      if (e.target === overlay) controls.lock(); // 背景クリックでも開始
+    });
+
+    controls.addEventListener("lock", () => overlay.style.display = "none");
+    controls.addEventListener("unlock", () => overlay.style.display = "flex");
+
+    // --- Physics ---
+    let velocity = new THREE.Vector3(0,0,0);
+    let onGround = false;
+    let deaths = 0;
+    let finished = false;
+    let startTime = performance.now();
+    let finishTime = 0;
+
+    const GRAVITY = 18.5;
+    const WALK_SPEED = 6.2;
+    const RUN_SPEED  = 9.2;
+    const AIR_CONTROL = 0.45;
+    const JUMP_V = 7.6;
+    const FRICTION = 12.0;
+    let jumpWasDown = false;
+
+    const spawnDefault = new THREE.Vector3(0, 0.02, 8);
+    let currentSpawn = spawnDefault.clone();
+
+    function playerAABB(posFeet){
+      return new THREE.Box3(
+        new THREE.Vector3(posFeet.x - PLAYER_RADIUS, posFeet.y, posFeet.z - PLAYER_RADIUS),
+        new THREE.Vector3(posFeet.x + PLAYER_RADIUS, posFeet.y + PLAYER_HEIGHT, posFeet.z + PLAYER_RADIUS)
+      );
+    }
+
+    function resolveAABBAgainstBox(pBox, sBox, posFeet){
+      if (!pBox.intersectsBox(sBox)) return posFeet;
+
+      const pMin = pBox.min, pMax = pBox.max;
+      const sMin = sBox.min, sMax = sBox.max;
+
+      const overlapX = Math.min(pMax.x - sMin.x, sMax.x - pMin.x);
+      const overlapY = Math.min(pMax.y - sMin.y, sMax.y - pMin.y);
+      const overlapZ = Math.min(pMax.z - sMin.z, sMax.z - pMin.z);
+
+      const newPos = posFeet.clone();
+
+      if (overlapX <= overlapY && overlapX <= overlapZ) {
+        const dir = ((pMin.x + pMax.x) * 0.5) < ((sMin.x + sMax.x) * 0.5) ? -1 : 1;
+        newPos.x += dir * overlapX;
+        velocity.x = 0;
+      } else if (overlapY <= overlapX && overlapY <= overlapZ) {
+        const dir = ((pMin.y + pMax.y) * 0.5) < ((sMin.y + sMax.y) * 0.5) ? -1 : 1;
+        newPos.y += dir * overlapY;
+        if (dir > 0) { onGround = true; if (velocity.y < 0) velocity.y = 0; }
+        else { if (velocity.y > 0) velocity.y = 0; }
+      } else {
+        const dir = ((pMin.z + pMax.z) * 0.5) < ((sMin.z + sMax.z) * 0.5) ? -1 : 1;
+        newPos.z += dir * overlapZ;
+        velocity.z = 0;
+      }
+      return newPos;
+    }
+
+    function respawn(countDeath=true){
+      if (countDeath) deaths++;
+      velocity.set(0,0,0);
+      onGround = false;
+      feetPos().copy(currentSpawn);
+    }
+
+    function restartRun(keepDeaths=false){
+      if (!keepDeaths) deaths = 0;
+      finished = false;
+      startTime = performance.now();
+      finishTime = 0;
+      for (const cp of world.checkpoints){
+        cp.hit = false;
+        cp.mesh.material = matCheckpointOff;
+      }
+      currentSpawn = spawnDefault.clone();
+      respawn(false);
+    }
+
+    function markCheckpoint(cp){
+      cp.hit = true;
+      cp.mesh.material = matCheckpointOn;
+      currentSpawn.copy(cp.spawn);
+    }
+
+    feetPos().copy(spawnDefault);
+
+    // Precompute boxes
+    for (const s of world.solids) updateBox3(s);
+    for (const h of world.hazards) updateBox3(h);
+    for (const cp of world.checkpoints) updateBox3(cp);
+    updateBox3(world.goal);
+
+    function updateMovers(dt){
+      for (const m of world.movers){
+        m.prevPos.copy(m.obj.mesh.position);
+        m.t += dt * m.spd;
+        const p = m.basePos.clone();
+        const s = Math.sin(m.t) * m.amp;
+        if (m.axis === "y") p.y += s;
+        if (m.axis === "x") p.x += s;
+        m.obj.mesh.position.copy(p);
+        updateBox3(m.obj);
+      }
+    }
+
+    function step(dt){
+      updateMovers(dt);
+      if (finished) return;
+
+      const wasGround = onGround;
+      onGround = false;
+
+      // Move dirs
+      const dirF = new THREE.Vector3();
+      camera.getWorldDirection(dirF);
+      dirF.y = 0; dirF.normalize();
+      const dirR = new THREE.Vector3().crossVectors(dirF, new THREE.Vector3(0,1,0)).normalize().multiplyScalar(-1);
+
+      let wish = new THREE.Vector3();
+      if (want("KeyW")) wish.add(dirF);
+      if (want("KeyS")) wish.sub(dirF);
+      if (want("KeyD")) wish.add(dirR);
+      if (want("KeyA")) wish.sub(dirR);
+      if (wish.lengthSq() > 0) wish.normalize();
+
+      const speed = wantRun() ? RUN_SPEED : WALK_SPEED;
+      const targetV = wish.multiplyScalar(speed);
+
+      const accel = wasGround ? 16.0 : 10.0;
+      const control = wasGround ? 1.0 : AIR_CONTROL;
+
+      velocity.x += (targetV.x - velocity.x) * Math.min(1, accel * dt * control);
+      velocity.z += (targetV.z - velocity.z) * Math.min(1, accel * dt * control);
+
+      if (wish.lengthSq() === 0 && wasGround){
+        const damp = Math.exp(-FRICTION * dt);
+        velocity.x *= damp; velocity.z *= damp;
+      }
+
+      velocity.y -= GRAVITY * dt;
+
+      const jumpDown = want("Space");
+      const jumpPressed = jumpDown && !jumpWasDown;
+      jumpWasDown = jumpDown;
+      if (jumpPressed && wasGround) velocity.y = JUMP_V;
+
+      const p = feetPos();
+      p.addScaledVector(velocity, dt);
+
+      for (let iter=0; iter<3; iter++){
+        const pBox = playerAABB(p);
+        let movedAny = false;
+        for (const s of world.solids){
+          const np = resolveAABBAgainstBox(pBox, s.box3, p);
+          if (!np.equals(p)) { p.copy(np); movedAny = true; }
+        }
+        if (!movedAny) break;
+      }
+
+      // Ground probe
+      {
+        const probe = p.clone(); probe.y -= 0.03;
+        const probeBox = playerAABB(probe);
+        for (const s of world.solids){
+          if (probeBox.intersectsBox(s.box3)){
+            onGround = true;
+            if (velocity.y < 0) velocity.y = 0;
+            break;
+          }
+        }
+      }
+
+      // Carry by mover
+      if (onGround){
+        const below = p.clone(); below.y -= 0.04;
+        const belowBox = playerAABB(below);
+        for (const m of world.movers){
+          if (belowBox.intersectsBox(m.obj.box3)){
+            const delta = m.obj.mesh.position.clone().sub(m.prevPos);
+            p.add(delta);
+            break;
+          }
+        }
+      }
+
+      const pBoxNow = playerAABB(p);
+
+      for (const hz of world.hazards){
+        if (pBoxNow.intersectsBox(hz.box3)){ respawn(true); return; }
+      }
+      for (const cp of world.checkpoints){
+        if (!cp.hit && pBoxNow.intersectsBox(cp.box3)) markCheckpoint(cp);
+      }
+      if (pBoxNow.intersectsBox(world.goal.box3)){
+        finished = true;
+        finishTime = (performance.now() - startTime) / 1000;
+      }
+      if (p.y < -25) respawn(true);
+
+      if (want("KeyR")) restartRun(true);
+    }
+
+    let last = performance.now();
+    function loop(now){
+      const dt = Math.min(0.033, (now - last) / 1000);
+      last = now;
+
+      if (controls.isLocked) step(dt);
+
+      const t = finished ? finishTime : (now - startTime) / 1000;
+      hud.innerHTML =
+        `Time <b>${t.toFixed(2)}</b>　|　Death <b>${deaths}</b>` +
+        (finished ? `　|　✅ CLEAR!（Rでリスタート）` : "") +
+        `<br><span style="opacity:.85">クリックで開始 / WASD / Space / Shift / ESC解除</span>`;
+
+      renderer.render(scene, camera);
+      requestAnimationFrame(loop);
+    }
+    requestAnimationFrame(loop);
+
+    addEventListener("resize", () => {
+      camera.aspect = innerWidth/innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(innerWidth, innerHeight);
+    });
+
+  })();
+  </script>
 </body>
 </html>
